@@ -409,7 +409,7 @@ fun HeaderStatusBar(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "GEM",
+                    text = "CTB",
                     fontSize = 38.sp,
                     fontWeight = FontWeight.Black,
                     color = CyberTextWhite,
@@ -2820,14 +2820,15 @@ fun ThinFooterNotice() {
         modifier = Modifier
             .fillMaxWidth()
             .background(CyberSurface)
-            .padding(8.dp),
+            .padding(horizontal = 12.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = "Risk Warning: Smallcap cryptocurrencies carry high liquidity risks. All predictions are generated algorithmically for informative and training purposes.",
-            fontSize = 7.5.sp,
+            fontSize = 7.2.sp,
             color = CyberTextDim,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
+            lineHeight = 9.sp
         )
     }
 }
