@@ -1,5 +1,5 @@
 {
-  "name": "Crypto Signal Scanner",
+  "name": "CTBSIGNAL",
   "description": "Scans the cryptocurrency market for coins with a $50M-$200M market cap and predicts high-confirmation long/short trade signals using Gemini and advanced trading strategies.",
   "requestFramePermissions": [],
   "majorCapabilities": [

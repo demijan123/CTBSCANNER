@@ -13,6 +13,8 @@ import com.example.data.local.SavedSignal
 import com.example.data.local.PaperTrade
 import com.example.data.model.Coin
 import com.example.data.repository.CryptoRepository
+import com.example.data.network.OkxClient
+import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -75,6 +77,84 @@ class CryptoViewModel(
     private val _botSelectedCoinIds = MutableStateFlow(prefs.getStringSet("bot_selected_coin_ids", emptySet()) ?: emptySet())
     val botSelectedCoinIds: StateFlow<Set<String>> = _botSelectedCoinIds.asStateFlow()
 
+    // --- OKX Live Trading State ---
+    private val _okxEnabled = MutableStateFlow(prefs.getBoolean("okx_enabled", false))
+    val okxEnabled: StateFlow<Boolean> = _okxEnabled.asStateFlow()
+
+    private val _okxIsDemo = MutableStateFlow(prefs.getBoolean("okx_is_demo", true))
+    val okxIsDemo: StateFlow<Boolean> = _okxIsDemo.asStateFlow()
+
+    private val _okxApiKey = MutableStateFlow(prefs.getString("okx_api_key", "") ?: "")
+    val okxApiKey: StateFlow<String> = _okxApiKey.asStateFlow()
+
+    private val _okxSecretKey = MutableStateFlow(prefs.getString("okx_secret_key", "") ?: "")
+    val okxSecretKey: StateFlow<String> = _okxSecretKey.asStateFlow()
+
+    private val _okxPassphrase = MutableStateFlow(prefs.getString("okx_passphrase", "") ?: "")
+    val okxPassphrase: StateFlow<String> = _okxPassphrase.asStateFlow()
+
+    private val _okxBalance = MutableStateFlow(0.0)
+    val okxBalance: StateFlow<Double> = _okxBalance.asStateFlow()
+
+    private val _okxConnectionStatus = MutableStateFlow("Disconnected")
+    val okxConnectionStatus: StateFlow<String> = _okxConnectionStatus.asStateFlow()
+
+    fun setOkxEnabled(enabled: Boolean) {
+        _okxEnabled.value = enabled
+        prefs.edit().putBoolean("okx_enabled", enabled).apply()
+        addLog(if (enabled) "🟢 OKX Live/Demo Execution ROUTED." else "🔴 OKX Live/Demo Execution DEACTIVATED.")
+        if (enabled) {
+            validateAndRefreshOkxBalance()
+        }
+    }
+
+    fun setOkxIsDemo(isDemo: Boolean) {
+        _okxIsDemo.value = isDemo
+        prefs.edit().putBoolean("okx_is_demo", isDemo).apply()
+        addLog("🤖 OKX Mode set to ${if (isDemo) "DEMO/SIMULATED" else "LIVE ORDER BOOK"}")
+        validateAndRefreshOkxBalance()
+    }
+
+    fun saveOkxCredentials(apiKey: String, secretKey: String, passphrase: String) {
+        _okxApiKey.value = apiKey
+        _okxSecretKey.value = secretKey
+        _okxPassphrase.value = passphrase
+        prefs.edit()
+            .putString("okx_api_key", apiKey)
+            .putString("okx_secret_key", secretKey)
+            .putString("okx_passphrase", passphrase)
+            .apply()
+        addLog("🤖 Saved OKX API Credentials manually.")
+        validateAndRefreshOkxBalance()
+    }
+
+    fun validateAndRefreshOkxBalance() {
+        val key = _okxApiKey.value
+        val sec = _okxSecretKey.value
+        val pass = _okxPassphrase.value
+        val isDemo = _okxIsDemo.value
+
+        if (key.isBlank() || sec.isBlank() || pass.isBlank()) {
+            _okxConnectionStatus.value = "Credentials Missing"
+            return
+        }
+
+        _okxConnectionStatus.value = "Connecting..."
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val balance = OkxClient.validateAndFetchBalance(key, sec, pass, isDemo)
+                _okxBalance.value = balance
+                _okxConnectionStatus.value = "Connected: ${String.format(Locale.US, "%.2f", balance)} USDT (${if (isDemo) "Demo" else "Live"})"
+                addLog("🟢 OKX API connection verified successfully. Balance: $${String.format(Locale.US, "%.2f", balance)} USDT.")
+            } catch (e: Throwable) {
+                _okxBalance.value = 0.0
+                val errMsg = e.localizedMessage ?: "Connection Failed"
+                _okxConnectionStatus.value = "Error: $errMsg"
+                addLog("❌ OKX API connection failed: $errMsg")
+            }
+        }
+    }
+
     val openTrades: StateFlow<List<PaperTrade>> = repository.openTradesFlow
         .stateIn(
             scope = viewModelScope,
@@ -132,6 +212,7 @@ class CryptoViewModel(
         _selectedMarketCapTier.value = tier
         prefs.edit().putString("market_cap_tier", tier.name).apply()
         triggerMarketScanOnConfigChange()
+        resetBotCoinsCache()
     }
 
     fun setCustomMarketCapRange(min: Double, max: Double) {
@@ -144,6 +225,7 @@ class CryptoViewModel(
         if (_selectedMarketCapTier.value == MarketCapTier.CUSTOM) {
             triggerMarketScanOnConfigChange()
         }
+        resetBotCoinsCache()
     }
 
     fun getActiveMarketCapRange(): Pair<Double, Double> {
@@ -166,7 +248,7 @@ class CryptoViewModel(
                 val range = getActiveMarketCapRange()
                 val coins = repository.scanMarket(useFallbackOnly = true, minCap = range.first, maxCap = range.second)
                 _scannedCoins.value = coins
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     _error.value = "Failed to load market data: ${e.message}"
                 }
@@ -210,13 +292,18 @@ class CryptoViewModel(
         )
 
     init {
+        // Automatically test OKX credentials if enabled on init
+        if (_okxEnabled.value) {
+            validateAndRefreshOkxBalance()
+        }
+
         // Automatically fetch an initial sample of coins using loaded constraints
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val range = getActiveMarketCapRange()
                 val coins = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
                 _scannedCoins.value = coins
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 _error.value = "Failed to load market data: ${e.message}"
             }
         }
@@ -230,7 +317,7 @@ class CryptoViewModel(
                     if (_botEnabled.value) {
                         runBotAutoTradingCycle()
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e("CryptoViewModel", "Error in paper trading live ticking loop: ${e.message}")
                 }
             }
@@ -242,7 +329,10 @@ class CryptoViewModel(
     }
 
     fun addLog(log: String) {
-        _scanLogs.update { current -> current + "[${getCurrentTime()}] $log" }
+        _scanLogs.update { current ->
+            val updated = current + "[${getCurrentTime()}] $log"
+            if (updated.size > 150) updated.takeLast(150) else updated
+        }
     }
 
     private fun getCurrentTime(): String {
@@ -361,7 +451,7 @@ class CryptoViewModel(
                 _scanProgress.value = 1.0f
                 addLog("SUCCESS: Swept $analyzedCount microcaps. Consolidated $generatedSignalsCount high-conviction trade entries that are highly confirmed.")
                 
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Scan error: ${e.message}", e)
                 addLog("🛑 Fatal pipeline error: ${e.localizedMessage}")
                 _error.value = "Pipeline broken: ${e.message}"
@@ -377,7 +467,7 @@ class CryptoViewModel(
                 val updated = signal.copy(isBookmarked = !signal.isBookmarked)
                 repository.updateSignal(updated)
                 addLog("${if (updated.isBookmarked) "Locked" else "Released"} setup bookmark track for ${signal.symbol.uppercase()}")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Error toggling bookmark: ${e.message}", e)
             }
         }
@@ -388,7 +478,7 @@ class CryptoViewModel(
             try {
                 repository.deleteSignal(signal)
                 addLog("Dismissed signal setup for ${signal.symbol.uppercase()}")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Error deleting signal: ${e.message}", e)
             }
         }
@@ -400,6 +490,27 @@ class CryptoViewModel(
 
     // --- Core Paper Trading Operations ---
     
+    private suspend fun closeOkxPositionIfLive(trade: PaperTrade, exitPrice: Double) {
+        if (!trade.isOkxTrade || trade.okxOrderId.isNullOrBlank()) return
+        try {
+            val isDemo = _okxIsDemo.value
+            addLog("💼 [OKX Execution] Closing live OKX position for ${trade.symbol.uppercase()} (QTY: ${String.format(Locale.US, "%.5f", trade.quantity)}) by placing market SELL order...")
+            val closeOrdId = OkxClient.placeMarketOrder(
+                apiKey = _okxApiKey.value,
+                secretKey = _okxSecretKey.value,
+                passphrase = _okxPassphrase.value,
+                isDemo = isDemo,
+                symbol = trade.symbol,
+                isBuy = false,
+                size = trade.quantity
+            )
+            addLog("🎯 [OKX Execution] Market SELL filled on OKX. Order ID: $closeOrdId. Position closed.")
+            validateAndRefreshOkxBalance()
+        } catch (e: Exception) {
+            addLog("❌ [OKX Execution Failed] Error closing OKX order for ${trade.symbol.uppercase()}: ${e.localizedMessage ?: "Unknown error"}")
+        }
+    }
+
     private suspend fun updateLiveOpenTrades() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val openPositions = repository.getOpenTradesList()
         if (openPositions.isEmpty()) return@withContext
@@ -461,9 +572,17 @@ class CryptoViewModel(
                     pnl = finalPnl
                 )
                 tradesToUpdate.add(closedTrade)
-                val returnFund = trade.investedAmount + finalPnl
-                balanceDelta += returnFund
-                addLog("📢 [Paper Trigger] ${trade.symbol.uppercase()} hit target. Closed position via $finalStatus! PnL: $${String.format(java.util.Locale.US, "%.2f", finalPnl)}")
+
+                if (trade.isOkxTrade) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        closeOkxPositionIfLive(trade, exitPrice)
+                    }
+                } else {
+                    val returnFund = trade.investedAmount + finalPnl
+                    balanceDelta += returnFund
+                }
+                val modeLabel = if (trade.isOkxTrade) "OKX Live Target" else "Paper Trigger"
+                addLog("📢 [$modeLabel] ${trade.symbol.uppercase()} hit target. Closed position via $finalStatus! PnL: $${String.format(java.util.Locale.US, "%.2f", finalPnl)}")
             } else {
                 val updatedTrade = trade.copy(
                     currentPrice = currentPrice,
@@ -495,39 +614,97 @@ class CryptoViewModel(
     ): Boolean {
         if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
         
-        val deducted = modifyCashBalance(-investedAmount)
-        if (!deducted) {
-            _error.value = "Insufficient paper trading capital"
-            addLog("❌ Paper trade failed: Insufficient balance.")
-            return false
+        if (!_okxEnabled.value) {
+            val deducted = modifyCashBalance(-investedAmount)
+            if (!deducted) {
+                _error.value = "Insufficient paper trading capital"
+                addLog("❌ Paper trade failed: Insufficient balance.")
+                return false
+            }
+        } else {
+            // Deduct mock cash balance if available, but do not block if it is depleted since we use OKX real capital
+            modifyCashBalance(-investedAmount)
         }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val quantity = investedAmount / entryPrice
-                val newTrade = PaperTrade(
-                    coinId = coinId,
-                    symbol = symbol,
-                    name = name,
-                    image = image,
-                    signalType = signalType,
-                    entryPrice = entryPrice,
-                    currentPrice = entryPrice,
-                    stopLoss = stopLoss,
-                    takeProfit = takeProfit,
-                    quantity = quantity,
-                    status = "OPEN",
-                    pnl = 0.0,
-                    investedAmount = investedAmount,
-                    strategy = strategy
-                )
-                repository.insertPaperTrade(newTrade)
-                addLog("🚀 Opened Paper Trade: $signalType ${symbol.uppercase()} size: $${String.format(java.util.Locale.US, "%.2f", investedAmount)}")
-            } catch (e: Exception) {
-                Log.e("CryptoViewModel", "Error opening paper trade: ${e.message}", e)
+        if (_okxEnabled.value) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    addLog("💼 [OKX Execution] Initiating market ${if (signalType == "LONG") "BUY" else "SELL (Short)"} for ${symbol.uppercase()}...")
+                    
+                    if (signalType == "SHORT") {
+                        addLog("⚠️ [OKX Spot Limit] OKX spot account does not support short selling directly. Executing as paper position instead.")
+                        insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = false, orderId = null)
+                        return@launch
+                    }
+
+                    val ordId = OkxClient.placeMarketOrder(
+                        apiKey = _okxApiKey.value,
+                        secretKey = _okxSecretKey.value,
+                        passphrase = _okxPassphrase.value,
+                        isDemo = _okxIsDemo.value,
+                        symbol = symbol,
+                        isBuy = true,
+                        size = investedAmount
+                    )
+
+                    addLog("🎯 [OKX Execution] Spot Market BUY order filled on OKX. Order ID: $ordId")
+                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = true, orderId = ordId)
+                    validateAndRefreshOkxBalance()
+                } catch (e: Exception) {
+                    val errorMsg = e.localizedMessage ?: "Unknown Error"
+                    addLog("❌ [OKX Execution Failed] Error placing order for ${symbol.uppercase()}: $errorMsg. Saving as paper position only.")
+                    // Fallback to regular paper trade in DB
+                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = false, orderId = null)
+                }
+            }
+        } else {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = false, orderId = null)
+                } catch (e: Exception) {
+                    Log.e("CryptoViewModel", "Error opening paper trade: ${e.message}", e)
+                }
             }
         }
         return true
+    }
+
+    private suspend fun insertPaperTradeInDb(
+        coinId: String,
+        symbol: String,
+        name: String,
+        image: String?,
+        signalType: String,
+        entryPrice: Double,
+        stopLoss: Double,
+        takeProfit: Double,
+        investedAmount: Double,
+        strategy: String,
+        isOkx: Boolean,
+        orderId: String?
+    ) {
+        val quantity = investedAmount / entryPrice
+        val newTrade = PaperTrade(
+            coinId = coinId,
+            symbol = symbol,
+            name = name,
+            image = image,
+            signalType = signalType,
+            entryPrice = entryPrice,
+            currentPrice = entryPrice,
+            stopLoss = stopLoss,
+            takeProfit = takeProfit,
+            quantity = quantity,
+            status = "OPEN",
+            pnl = 0.0,
+            investedAmount = investedAmount,
+            strategy = strategy,
+            isOkxTrade = isOkx,
+            okxOrderId = orderId
+        )
+        repository.insertPaperTrade(newTrade)
+        val modeText = if (isOkx) "OKX Live Order" else "Paper Trade"
+        addLog("🚀 Opened $modeText: $signalType ${symbol.uppercase()} size: $${String.format(Locale.US, "%.2f", investedAmount)}")
     }
 
     fun closePaperTradeManually(trade: PaperTrade) {
@@ -549,9 +726,16 @@ class CryptoViewModel(
                     pnl = pnl
                 )
                 repository.updatePaperTrade(closedTrade)
-                modifyCashBalance(trade.investedAmount + pnl)
-                addLog("🔴 Manually closed paper trade ${trade.symbol.uppercase()} at $${String.format(java.util.Locale.US, "%.4f", exitPrice)}. PnL: $${String.format(java.util.Locale.US, "%.2f", pnl)}")
-            } catch (e: Exception) {
+
+                if (trade.isOkxTrade) {
+                    closeOkxPositionIfLive(trade, exitPrice)
+                } else {
+                    modifyCashBalance(trade.investedAmount + pnl)
+                }
+                
+                val sourceLabel = if (trade.isOkxTrade) "live OKX position" else "paper trade"
+                addLog("🔴 Manually closed $sourceLabel ${trade.symbol.uppercase()} at $${String.format(java.util.Locale.US, "%.4f", exitPrice)}. PnL: $${String.format(java.util.Locale.US, "%.2f", pnl)}")
+            } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Error closing paper trade: ${e.message}", e)
             }
         }
@@ -563,7 +747,7 @@ class CryptoViewModel(
                 repository.clearAllPaperTrades()
                 resetCashBalance()
                 addLog("♻️ Reset virtual ledger. Portfolio balance set to $100,000.00 USD.")
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Error resetting trade account: ${e.message}", e)
             }
         }
@@ -618,6 +802,7 @@ class CryptoViewModel(
         _botTargetCoinMode.value = mode
         prefs.edit().putString("bot_target_coin_mode", mode).apply()
         addLog("🤖 Configured Bot Target Coin Mode to: $mode")
+        resetBotCoinsCache()
     }
 
     fun toggleBotSelectedCoin(coinId: String) {
@@ -639,7 +824,14 @@ class CryptoViewModel(
         addLog("🤖 Cleared all bot target custom coins")
     }
 
-    private var isBotScanning = false
+    @Volatile private var isBotScanning = false
+    @Volatile private var botScannedCoins: List<Coin> = emptyList()
+    @Volatile private var lastBotScanTime = 0L
+
+    fun resetBotCoinsCache() {
+        botScannedCoins = emptyList()
+        lastBotScanTime = 0L
+    }
 
     private suspend fun runBotAutoTradingCycle() {
         if (isBotScanning) return
@@ -654,12 +846,16 @@ class CryptoViewModel(
             var spotsNeeded = maxTrades - currentActive
             if (spotsNeeded <= 0) return
 
-            // Get target coins
+            // Get target coins independently of the manual scanner
             val range = getActiveMarketCapRange()
-            val coins = if (scannedCoins.value.isNotEmpty()) {
-                scannedCoins.value
+            val now = System.currentTimeMillis()
+            val coins = if (botScannedCoins.isEmpty() || (now - lastBotScanTime) > 60000L) {
+                val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                botScannedCoins = fetched
+                lastBotScanTime = now
+                fetched
             } else {
-                repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                botScannedCoins
             }
 
             if (coins.isEmpty()) return
@@ -716,9 +912,11 @@ class CryptoViewModel(
                         }
                     }
                 }
-                delay(150)
+                // Spaced out to respect Gemini rate limiting and prevent main thread stalls or ANRs
+                val botDelay = if (isModelKeyConfigured) 1200L else 150L
+                delay(botDelay)
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e("CryptoViewModel", "Bot scanner loop error: ${e.message}", e)
         } finally {
             isBotScanning = false

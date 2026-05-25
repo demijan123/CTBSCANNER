@@ -96,6 +96,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.activity.compose.BackHandler
 import androidx.lifecycle.ViewModelProvider
 import coil.compose.AsyncImage
 import com.example.data.local.AppDatabase
@@ -231,6 +237,7 @@ fun MainDesktopDashboard(
     var selectedTab by remember { mutableStateOf(0) }
     val latestBacktestResults = remember { mutableStateMapOf<String, SimulationResult>() }
     val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "PAPER TRADING", "AUTO BOT")
+    var selectedCoinForDetails by remember { mutableStateOf<Coin?>(null) }
 
     val scannedCoins by viewModel.scannedCoins.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
@@ -241,121 +248,130 @@ fun MainDesktopDashboard(
     val confirmedSignals by viewModel.activeConfirmedSignals.collectAsState()
     val bookmarkedSignals by viewModel.bookmarkedSignals.collectAsState()
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(CyberDark)
     ) {
-        // --- Header Status Bar ---
-        HeaderStatusBar(
-            isScanning = isScanning,
-            isKeyConfigured = viewModel.isModelKeyConfigured,
-            onForceRefresh = { viewModel.forceFullRefresh() }
-        )
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // --- Header Status Bar ---
+            HeaderStatusBar(
+                isScanning = isScanning,
+                isKeyConfigured = viewModel.isModelKeyConfigured,
+                onForceRefresh = { viewModel.forceFullRefresh() }
+            )
 
-        // --- Active Scan Progress Indicators ---
-        if (isScanning) {
-            ScannerLiveProgressOverlay(
-                progress = scanProgress,
-                logs = scanLogs
+            // --- Active Scan Progress Indicators ---
+            if (isScanning) {
+                ScannerLiveProgressOverlay(
+                    progress = scanProgress,
+                    logs = scanLogs
+                )
+            }
+
+            // --- Navigation Tab Selection ---
+            ScrollableTabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = CyberSurface,
+                contentColor = CyberTextWhite,
+                edgePadding = 12.dp,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                        color = CyberAccentGreen
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("nav_tabs")
+            ) {
+                tabTitles.forEachIndexed { index, title ->
+                    val isSelected = selectedTab == index
+                    val icon = when (index) {
+                        0 -> Icons.Default.Search
+                        1 -> Icons.Default.Check
+                        2 -> Icons.Default.Favorite
+                        3 -> Icons.Default.Info
+                        4 -> Icons.Default.PlayArrow
+                        5 -> Icons.Default.Refresh
+                        else -> Icons.Default.Info
+                    }
+                    Tab(
+                        selected = isSelected,
+                        onClick = { selectedTab = index },
+                        modifier = Modifier.testTag("tab_item_$index"),
+                        icon = {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = if (isSelected) CyberAccentGreen else CyberTextDim,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        text = {
+                            Text(
+                                text = title,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) CyberAccentGreen else CyberTextDim,
+                                letterSpacing = 0.5.sp,
+                                maxLines = 1
+                            )
+                        }
+                    )
+                }
+            }
+
+            // --- Active Tab Screen Router ---
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(12.dp)
+            ) {
+                when (selectedTab) {
+                    0 -> ScannerMarketTab(
+                        viewModel = viewModel,
+                        coins = scannedCoins,
+                        confirmedSignals = confirmedSignals,
+                        isScanning = isScanning,
+                        onScanClick = { viewModel.startFullMarketScan() },
+                        onAnalyzeItem = { coin ->
+                            selectedCoinForDetails = coin
+                        }
+                    )
+                    1 -> ConfirmedSignalsTab(
+                        viewModel = viewModel,
+                        signals = confirmedSignals,
+                        onBookmarkToggle = { viewModel.toggleBookmark(it) },
+                        onDismiss = { viewModel.deleteSignal(it) },
+                        emptyText = "No active trade signals. Click 'MARKET SCANNER' and hit 'START ANALYSIS ROUTINE' to scan microcaps for breakout targets."
+                    )
+                    2 -> ConfirmedSignalsTab(
+                        viewModel = viewModel,
+                        signals = bookmarkedSignals,
+                        onBookmarkToggle = { viewModel.toggleBookmark(it) },
+                        onDismiss = { viewModel.deleteSignal(it) },
+                        emptyText = "Your Bookmarked signals live here. Tap the Bookmark icon on any confirmed signal inside active trades to preserve it."
+                    )
+                    3 -> StrategyBlueprintsTab(viewModel = viewModel, latestBacktestResults = latestBacktestResults)
+                    4 -> PaperTradingPortfolioTab(viewModel = viewModel)
+                    5 -> AutoBotTradingConsoleTab(viewModel = viewModel)
+                }
+            }
+
+            // --- Tiny Footer ---
+            ThinFooterNotice()
+        }
+
+        selectedCoinForDetails?.let { coin ->
+            CoinCredentialsOverlay(
+                coin = coin,
+                onDismiss = { selectedCoinForDetails = null }
             )
         }
-
-        // --- Navigation Tab Selection ---
-        ScrollableTabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = CyberSurface,
-            contentColor = CyberTextWhite,
-            edgePadding = 12.dp,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                    color = CyberAccentGreen
-                )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("nav_tabs")
-        ) {
-            tabTitles.forEachIndexed { index, title ->
-                val isSelected = selectedTab == index
-                val icon = when (index) {
-                    0 -> Icons.Default.Search
-                    1 -> Icons.Default.Check
-                    2 -> Icons.Default.Favorite
-                    3 -> Icons.Default.Info
-                    4 -> Icons.Default.PlayArrow
-                    5 -> Icons.Default.Refresh
-                    else -> Icons.Default.Info
-                }
-                Tab(
-                    selected = isSelected,
-                    onClick = { selectedTab = index },
-                    modifier = Modifier.testTag("tab_item_$index"),
-                    icon = {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = null,
-                            tint = if (isSelected) CyberAccentGreen else CyberTextDim,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = title,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) CyberAccentGreen else CyberTextDim,
-                            letterSpacing = 0.5.sp,
-                            maxLines = 1
-                        )
-                    }
-                )
-            }
-        }
-
-        // --- Active Tab Screen Router ---
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .padding(12.dp)
-        ) {
-            when (selectedTab) {
-                0 -> ScannerMarketTab(
-                    viewModel = viewModel,
-                    coins = scannedCoins,
-                    confirmedSignals = confirmedSignals,
-                    isScanning = isScanning,
-                    onScanClick = { viewModel.startFullMarketScan() },
-                    onAnalyzeItem = { coin ->
-                        // Analyze specific item instantly
-                        viewModel.addLog("Triggering instant manual AI analysis on ${coin.symbol.uppercase()}...")
-                        viewModel.startFullMarketScan()
-                    }
-                )
-                1 -> ConfirmedSignalsTab(
-                    viewModel = viewModel,
-                    signals = confirmedSignals,
-                    onBookmarkToggle = { viewModel.toggleBookmark(it) },
-                    onDismiss = { viewModel.deleteSignal(it) },
-                    emptyText = "No active trade signals. Click 'MARKET SCANNER' and hit 'START ANALYSIS ROUTINE' to scan microcaps for breakout targets."
-                )
-                2 -> ConfirmedSignalsTab(
-                    viewModel = viewModel,
-                    signals = bookmarkedSignals,
-                    onBookmarkToggle = { viewModel.toggleBookmark(it) },
-                    onDismiss = { viewModel.deleteSignal(it) },
-                    emptyText = "Your Bookmarked signals live here. Tap the Bookmark icon on any confirmed signal inside active trades to preserve it."
-                )
-                3 -> StrategyBlueprintsTab(viewModel = viewModel, latestBacktestResults = latestBacktestResults)
-                4 -> PaperTradingPortfolioTab(viewModel = viewModel)
-                5 -> AutoBotTradingConsoleTab(viewModel = viewModel)
-            }
-        }
-
-        // --- Tiny Footer ---
-        ThinFooterNotice()
     }
 }
 
@@ -568,7 +584,7 @@ fun ScannerLiveProgressOverlay(
             }
             Spacer(modifier = Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = progress,
+                progress = if (progress.isNaN() || progress.isInfinite()) 0f else progress.coerceIn(0f, 1f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
@@ -2160,7 +2176,7 @@ fun BacktestSimulatorScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         LinearProgressIndicator(
-                            progress = { simulationProgress },
+                            progress = { if (simulationProgress.isNaN() || simulationProgress.isInfinite()) 0f else simulationProgress.coerceIn(0f, 1f) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp),
@@ -2815,6 +2831,349 @@ fun CyberPercentColor(trend: String): Color {
 }
 
 @Composable
+fun CoinCredentialsOverlay(
+    coin: Coin,
+    onDismiss: () -> Unit
+) {
+    BackHandler(enabled = true) {
+        onDismiss()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.75f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .padding(16.dp)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { /* Consume click events on card itself */ }
+                .border(2.dp, CyberAccentGreen, RoundedCornerShape(24.dp)),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = CyberCard)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (coin.image != null) {
+                            AsyncImage(
+                                model = coin.image,
+                                contentDescription = "${coin.name} logo",
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(CyberDark)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(CyberSlate),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = coin.symbol.take(2).uppercase(),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberTextWhite
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = coin.name,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = CyberTextWhite,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = coin.symbol.uppercase(),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberAccentGreen
+                            )
+                        }
+                    }
+                    
+                    // Close button
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(CyberDark, CircleShape)
+                            .border(1.dp, CyberSurface, CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss credentials",
+                            tint = CyberTextWhite,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(18.dp))
+                
+                // Real-time badge
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(CyberDark, RoundedCornerShape(8.dp))
+                        .border(1.dp, CyberSurface, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(CyberAccentGreen)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "REAL-TIME MARKET CREDENTIALS",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                color = CyberTextWhite,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                        Text(
+                            text = "LIVE DATA",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberAccentGreen
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Grid of items: Market Cap & 24h Volume
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CredentialStatCard(
+                        title = "MARKET CAP",
+                        formattedVal = "$${formatLargeNumber(coin.marketCap)}",
+                        rawVal = "$${safeFormatDouble(coin.marketCap, "%,.2f")}",
+                        modifier = Modifier.weight(1f)
+                    )
+                    CredentialStatCard(
+                        title = "VOLUME (24H)",
+                        formattedVal = "$${formatLargeNumber(coin.totalVolume ?: 0.0)}",
+                        rawVal = if (coin.totalVolume != null) "$${safeFormatDouble(coin.totalVolume, "%,.2f")}" else "N/A",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                // Supply metrics
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CredentialStatCard(
+                        title = "CIRCULATING SUPPLY",
+                        formattedVal = formatSupply(coin.circulatingSupply, coin.symbol),
+                        rawVal = coin.circulatingSupply?.let { safeFormatDouble(it, "%,.0f") } ?: "N/A",
+                        modifier = Modifier.weight(1f)
+                    )
+                    CredentialStatCard(
+                        title = "TOTAL SUPPLY",
+                        formattedVal = formatSupply(coin.totalSupply, coin.symbol),
+                        rawVal = coin.totalSupply?.let { safeFormatDouble(it, "%,.0f") } ?: "N/A",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Max Supply
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    CredentialStatCard(
+                        title = "MAX SUPPLY",
+                        formattedVal = coin.maxSupply?.let { formatSupply(it, coin.symbol) } ?: "∞ (No Hard Cap)",
+                        rawVal = coin.maxSupply?.let { safeFormatDouble(it, "%,.0f") } ?: "Unbounded",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // If Circulating & Max percentage bar, show it
+                val circulating = coin.circulatingSupply
+                val total = coin.totalSupply ?: coin.maxSupply
+                if (circulating != null && total != null && total > 0.0 &&
+                    !circulating.isNaN() && !circulating.isInfinite() &&
+                    !total.isNaN() && !total.isInfinite()) {
+                    val rawPct = circulating / total * 100.0
+                    val pct = if (rawPct.isNaN() || rawPct.isInfinite()) 0.0 else rawPct.coerceIn(0.0, 100.0)
+                    val fraction = (pct / 100.0).toFloat().coerceIn(0f, 1f)
+                    val safeFraction = if (fraction.isNaN() || fraction.isInfinite()) 0f else fraction
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .border(1.dp, CyberSurface, RoundedCornerShape(12.dp))
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "CIRCULATING SUPPLY RATIO",
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberTextDim,
+                                letterSpacing = 0.5.sp
+                            )
+                            Text(
+                                text = safeFormatDouble(pct, "%.2f") + "%",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = CyberAccentGreen
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // Progress bar container
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(CyberSurface)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(safeFraction)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(CyberAccentGreen.copy(alpha = 0.5f), CyberAccentGreen)
+                                        )
+                                    )
+                            )
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                // Action Dismiss Button
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CyberAccentGreen,
+                        contentColor = CyberDark
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "CLOSE SYSTEM MONITOR",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CredentialStatCard(
+    title: String,
+    formattedVal: String,
+    rawVal: String,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = CyberDark),
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Text(
+                text = title,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = CyberTextDim,
+                letterSpacing = 0.5.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = formattedVal,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+                color = CyberTextWhite
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = rawVal,
+                fontSize = 9.sp,
+                color = CyberTextDim,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+fun formatSupply(value: Double?, symbol: String): String {
+    if (value == null || value <= 0.0) return "N/A"
+    return "${formatLargeNumber(value)} ${symbol.uppercase()}"
+}
+
+fun safeFormatDouble(value: Double?, format: String, fallback: String = "N/A"): String {
+    if (value == null || value.isNaN() || value.isInfinite()) return fallback
+    return try {
+        String.format(java.util.Locale.US, format, value)
+    } catch (e: Exception) {
+        fallback
+    }
+}
+
+@Composable
 fun ThinFooterNotice() {
     Box(
         modifier = Modifier
@@ -3173,6 +3532,23 @@ fun OpenPositionCard(trade: PaperTrade, onCloseClick: () -> Unit) {
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
+                            if (trade.isOkxTrade) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(CyberAccentGreen)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "OKX LIVE",
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = CyberDark,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
                         }
                         Text(
                             text = trade.name,
@@ -3321,6 +3697,24 @@ fun ClosedPositionCard(trade: PaperTrade) {
                                     color = CyberGold,
                                     fontFamily = FontFamily.Monospace
                                 )
+                            }
+                            if (trade.isOkxTrade) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(CyberAccentGreen.copy(alpha = 0.2f))
+                                        .border(0.5.dp, CyberAccentGreen, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "OKX SPOT",
+                                        fontSize = 7.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = CyberAccentGreen,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
                             }
                         }
                     }
@@ -3492,6 +3886,304 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 color = if (openTrades.size >= botMaxTrades) CyberAccentRed else CyberAccentGreen
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1B. OKX LIVE TRADING SETUP CARD
+        item {
+            val okxEnabled by viewModel.okxEnabled.collectAsState()
+            val okxIsDemo by viewModel.okxIsDemo.collectAsState()
+            val okxApiKey by viewModel.okxApiKey.collectAsState()
+            val okxSecretKey by viewModel.okxSecretKey.collectAsState()
+            val okxPassphrase by viewModel.okxPassphrase.collectAsState()
+            val okxConnectionStatus by viewModel.okxConnectionStatus.collectAsState()
+            val okxBalance by viewModel.okxBalance.collectAsState()
+
+            var apiKeyInput by remember { mutableStateOf(okxApiKey) }
+            var secretKeyInput by remember { mutableStateOf(okxSecretKey) }
+            var passphraseInput by remember { mutableStateOf(okxPassphrase) }
+
+            // Sync with viewModel when credentials change in DB
+            LaunchedEffect(okxApiKey, okxSecretKey, okxPassphrase) {
+                apiKeyInput = okxApiKey
+                secretKeyInput = okxSecretKey
+                passphraseInput = okxPassphrase
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("okx_setup_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "OKX API ROUTING PROTOCOL",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberGold,
+                                letterSpacing = 1.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Live Order Execution",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = CyberTextWhite
+                            )
+                        }
+
+                        Switch(
+                            checked = okxEnabled,
+                            onCheckedChange = { viewModel.setOkxEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = CyberAccentGreen,
+                                uncheckedThumbColor = CyberTextDim,
+                                uncheckedTrackColor = CyberSurface
+                            ),
+                            modifier = Modifier.testTag("okx_routing_switch")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // OKX Balance and Connection status banner
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(14.dp))
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "OKX EXCHANGE BALANCE",
+                                fontSize = 8.sp,
+                                color = CyberTextDim,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (okxEnabled && okxConnectionStatus.contains("Connected")) {
+                                    "$${formatCurrency(okxBalance)} USDT"
+                                } else {
+                                    "Locked / Standby"
+                                },
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (okxEnabled && okxConnectionStatus.contains("Connected")) CyberAccentGreen else CyberTextDim
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = "ROUTING GATEWAY",
+                                fontSize = 8.sp,
+                                color = CyberTextDim,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = okxConnectionStatus,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = when {
+                                    okxConnectionStatus.contains("Connected") -> CyberAccentGreen
+                                    okxConnectionStatus.contains("Connecting") -> CyberGold
+                                    okxConnectionStatus.contains("Error") -> CyberAccentRed
+                                    else -> CyberTextDim
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Demo vs Live Switch
+                    Text(
+                        text = "EXECUTION ROUTE MODE",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextDim,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .padding(4.dp)
+                    ) {
+                        listOf(true, false).forEach { isDemo ->
+                            val isSelected = okxIsDemo == isDemo
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) CyberSlate else Color.Transparent)
+                                    .clickable { viewModel.setOkxIsDemo(isDemo) }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (isDemo) "DEMO/SIMULATED TRADING" else "LIVE ORDER BOOK",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) CyberAccentGreen else CyberTextDim
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Input Form Fields (API Key, Secret Key, Passphrase)
+                    Text(
+                        text = "OKX MANUALLY CONFIGURED API KEY",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextDim,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("okx_api_key_input"),
+                        placeholder = { Text("Enter your OKX API Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberAccentGreen,
+                            unfocusedBorderColor = CyberSurface,
+                            focusedTextColor = CyberTextWhite,
+                            unfocusedTextColor = CyberTextWhite,
+                            focusedContainerColor = CyberDark,
+                            unfocusedContainerColor = CyberDark
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "OKX API SECRET KEY",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextDim,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = secretKeyInput,
+                        onValueChange = { secretKeyInput = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("okx_secret_key_input"),
+                        placeholder = { Text("Enter your OKX Secret Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberAccentGreen,
+                            unfocusedBorderColor = CyberSurface,
+                            focusedTextColor = CyberTextWhite,
+                            unfocusedTextColor = CyberTextWhite,
+                            focusedContainerColor = CyberDark,
+                            unfocusedContainerColor = CyberDark
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "OKX API PASSPHRASE",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextDim,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = passphraseInput,
+                        onValueChange = { passphraseInput = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("okx_passphrase_input"),
+                        placeholder = { Text("Enter your OKX Passphrase", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberAccentGreen,
+                            unfocusedBorderColor = CyberSurface,
+                            focusedTextColor = CyberTextWhite,
+                            unfocusedTextColor = CyberTextWhite,
+                            focusedContainerColor = CyberDark,
+                            unfocusedContainerColor = CyberDark
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Connect/Update credentials triggers
+                    Button(
+                        onClick = {
+                            viewModel.saveOkxCredentials(
+                                apiKey = apiKeyInput.trim(),
+                                secretKey = secretKeyInput.trim(),
+                                passphrase = passphraseInput.trim()
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("okx_connect_button"),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (apiKeyInput.isNotBlank() && secretKeyInput.isNotBlank() && passphraseInput.isNotBlank()) {
+                                CyberAccentGreen
+                            } else {
+                                CyberSlate
+                            }
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = if (apiKeyInput.isNotBlank() && secretKeyInput.isNotBlank() && passphraseInput.isNotBlank()) CyberDark else CyberTextDim,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "TEST & SAVE OKX CONFIG",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (apiKeyInput.isNotBlank() && secretKeyInput.isNotBlank() && passphraseInput.isNotBlank()) CyberDark else CyberTextDim,
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                     }

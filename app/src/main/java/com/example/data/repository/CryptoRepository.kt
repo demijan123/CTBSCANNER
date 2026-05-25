@@ -38,16 +38,16 @@ class CryptoRepository(
     // Highly realistic mock data of crypto coins with $50M to $200M market cap
     // to act as high-fidelity fallbacks or supplementary scan lists in case of API limits or offline modes
     private val fallbackCoins = listOf(
-        Coin("celer-network", "celr", "Celer Network", "https://assets.coingecko.com/coins/images/4379/large/celr.png", 0.0165, 98500000.0, 312, 12500000.0, 0.0178, 0.0152, 10.45),
-        Coin("origin-protocol", "ogn", "Origin Protocol", "https://assets.coingecko.com/coins/images/10398/large/Origin_Protocol.png", 0.1140, 68400000.0, 489, 4200000.0, 0.1165, 0.1120, -1.25),
-        Coin("lto-network", "lto", "LTO Network", "https://assets.coingecko.com/coins/images/7376/large/lto_icon_green.png", 0.1450, 62300000.0, 520, 8900000.0, 0.1620, 0.1380, 18.23),
-        Coin("cartesi", "ctsi", "Cartesi", "https://assets.coingecko.com/coins/images/11038/large/cartesi.png", 0.1840, 154000000.0, 240, 15300000.0, 0.2030, 0.1810, -9.54),
-        Coin("nkn", "nkn", "NKN", "https://assets.coingecko.com/coins/images/3375/large/nkn.png", 0.0920, 71500000.0, 471, 3100000.0, 0.0945, 0.0890, 2.14),
-        Coin("arpa", "arpa", "ARPA", "https://assets.coingecko.com/coins/images/8451/large/ARPA.png", 0.0520, 64900000.0, 498, 9300000.0, 0.0575, 0.0501, 8.90),
-        Coin("dia", "dia", "DIA", "https://assets.coingecko.com/coins/images/11964/large/dia.jpg", 0.6550, 78600000.0, 410, 14200000.0, 0.7200, 0.6120, 14.85),
-        Coin("metis-token", "metis", "Metis", "https://assets.coingecko.com/coins/images/15174/large/Metis_Token.png", 32.40, 184500000.0, 212, 19800000.0, 32.90, 29.50, 11.12),
-        Coin("perpetual-protocol", "perp", "Perpetual Protocol", "https://assets.coingecko.com/coins/images/12839/large/perp.jpg", 0.8120, 53200000.0, 560, 5200000.0, 0.8950, 0.7950, -8.12),
-        Coin("vidt-datalink", "vidt", "VIDT DAO", "https://assets.coingecko.com/coins/images/9715/large/VIDT_DAO_logo_logo.png", 0.0345, 29300000.0, 720, 3100000.0, 0.0360, 0.0310, 12.50) // will filter by cap or scale in scan
+        Coin("celer-network", "celr", "Celer Network", "https://assets.coingecko.com/coins/images/4379/large/celr.png", 0.0165, 98500000.0, 312, 12500000.0, 0.0178, 0.0152, 10.45, 10_000_000_000.0, 5_968_000_000.0, 10_000_000_000.0),
+        Coin("origin-protocol", "ogn", "Origin Protocol", "https://assets.coingecko.com/coins/images/10398/large/Origin_Protocol.png", 0.1140, 68400000.0, 489, 4200000.0, 0.1165, 0.1120, -1.25, 1_000_000_000.0, 502_000_000.0, 1_000_000_000.0),
+        Coin("lto-network", "lto", "LTO Network", "https://assets.coingecko.com/coins/images/7376/large/lto_icon_green.png", 0.1450, 62300000.0, 520, 8900000.0, 0.1620, 0.1380, 18.23, 403_000_000.0, 412_000_000.0, 412_000_000.0),
+        Coin("cartesi", "ctsi", "Cartesi", "https://assets.coingecko.com/coins/images/11038/large/cartesi.png", 0.1840, 154000000.0, 240, 15300000.0, 0.2030, 0.1810, -9.54, 1_000_000_000.0, 781_000_000.0, 1_000_000_000.0),
+        Coin("nkn", "nkn", "NKN", "https://assets.coingecko.com/coins/images/3375/large/nkn.png", 0.0920, 71500000.0, 471, 3100000.0, 0.0945, 0.0890, 2.14, 1_000_000_000.0, 754_000_000.0, 1_000_000_000.0),
+        Coin("arpa", "arpa", "ARPA", "https://assets.coingecko.com/coins/images/8451/large/ARPA.png", 0.0520, 64900000.0, 498, 9300000.0, 0.0575, 0.0501, 8.90, 2_000_000_000.0, 1_242_000_000.0, 2_000_000_000.0),
+        Coin("dia", "dia", "DIA", "https://assets.coingecko.com/coins/images/11964/large/dia.jpg", 0.6550, 78600000.0, 410, 14200000.0, 0.7200, 0.6120, 14.85, 200_000_000.0, 110_000_000.0, 200_000_000.0),
+        Coin("metis-token", "metis", "Metis", "https://assets.coingecko.com/coins/images/15174/large/Metis_Token.png", 32.40, 184500000.0, 212, 19800000.0, 32.90, 29.50, 11.12, 10_000_000.0, 5_410_000.0, 10_000_000.0),
+        Coin("perpetual-protocol", "perp", "Perpetual Protocol", "https://assets.coingecko.com/coins/images/12839/large/perp.jpg", 0.8120, 53200000.0, 560, 5200000.0, 0.8950, 0.7950, -8.12, 150_000_000.0, 85_000_000.0, 150_000_000.0),
+        Coin("vidt-datalink", "vidt", "VIDT DAO", "https://assets.coingecko.com/coins/images/9715/large/VIDT_DAO_logo_logo.png", 0.0345, 29300000.0, 720, 3100000.0, 0.0360, 0.0310, 12.50, 1_000_000_000.0, 770_000_000.0, 1_000_000_000.0) // will filter by cap or scale in scan
     )
 
     /**
@@ -194,7 +194,7 @@ class CryptoRepository(
         val price = coin.currentPrice
         val changePercentage = coin.priceChangePercentage24h ?: 0.0
         val vol = coin.totalVolume ?: 500_000.0
-        val relativeVolume = vol / (coin.marketCap * 0.05) // Approximate relative volume indicator
+        val relativeVolume = vol / (coin.marketCap.coerceAtLeast(1.0) * 0.05) // Approximate relative volume indicator
 
         val isOversold = changePercentage < -9.5 && relativeVolume > 1.2
         val isOverboughtBreakout = changePercentage > 12.0 && relativeVolume > 1.5
