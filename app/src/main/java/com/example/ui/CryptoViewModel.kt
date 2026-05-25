@@ -14,6 +14,7 @@ import com.example.data.local.PaperTrade
 import com.example.data.model.Coin
 import com.example.data.repository.CryptoRepository
 import com.example.data.network.OkxClient
+import com.example.data.network.MexcClient
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -84,13 +85,13 @@ class CryptoViewModel(
     private val _okxIsDemo = MutableStateFlow(prefs.getBoolean("okx_is_demo", true))
     val okxIsDemo: StateFlow<Boolean> = _okxIsDemo.asStateFlow()
 
-    private val _okxApiKey = MutableStateFlow(prefs.getString("okx_api_key", "") ?: "")
+    private val _okxApiKey = MutableStateFlow(prefs.getString("okx_api_key", "00884f07-3877-4b53-a543-39d504adcf99") ?: "00884f07-3877-4b53-a543-39d504adcf99")
     val okxApiKey: StateFlow<String> = _okxApiKey.asStateFlow()
 
-    private val _okxSecretKey = MutableStateFlow(prefs.getString("okx_secret_key", "") ?: "")
+    private val _okxSecretKey = MutableStateFlow(prefs.getString("okx_secret_key", "220F3C4CE2842CA9B3085F959DEA779F") ?: "220F3C4CE2842CA9B3085F959DEA779F")
     val okxSecretKey: StateFlow<String> = _okxSecretKey.asStateFlow()
 
-    private val _okxPassphrase = MutableStateFlow(prefs.getString("okx_passphrase", "") ?: "")
+    private val _okxPassphrase = MutableStateFlow(prefs.getString("okx_passphrase", "N@deem123") ?: "N@deem123")
     val okxPassphrase: StateFlow<String> = _okxPassphrase.asStateFlow()
 
     private val _okxBalance = MutableStateFlow(0.0)
@@ -151,6 +152,78 @@ class CryptoViewModel(
                 val errMsg = e.localizedMessage ?: "Connection Failed"
                 _okxConnectionStatus.value = "Error: $errMsg"
                 addLog("❌ OKX API connection failed: $errMsg")
+            }
+        }
+    }
+
+    // --- MEXC Live Trading State ---
+    private val _mexcEnabled = MutableStateFlow(prefs.getBoolean("mexc_enabled", false))
+    val mexcEnabled: StateFlow<Boolean> = _mexcEnabled.asStateFlow()
+
+    private val _mexcIsDemo = MutableStateFlow(prefs.getBoolean("mexc_is_demo", true))
+    val mexcIsDemo: StateFlow<Boolean> = _mexcIsDemo.asStateFlow()
+
+    private val _mexcApiKey = MutableStateFlow(prefs.getString("mexc_api_key", "") ?: "")
+    val mexcApiKey: StateFlow<String> = _mexcApiKey.asStateFlow()
+
+    private val _mexcSecretKey = MutableStateFlow(prefs.getString("mexc_secret_key", "") ?: "")
+    val mexcSecretKey: StateFlow<String> = _mexcSecretKey.asStateFlow()
+
+    private val _mexcBalance = MutableStateFlow(0.0)
+    val mexcBalance: StateFlow<Double> = _mexcBalance.asStateFlow()
+
+    private val _mexcConnectionStatus = MutableStateFlow("Disconnected")
+    val mexcConnectionStatus: StateFlow<String> = _mexcConnectionStatus.asStateFlow()
+
+    fun setMexcEnabled(enabled: Boolean) {
+        _mexcEnabled.value = enabled
+        prefs.edit().putBoolean("mexc_enabled", enabled).apply()
+        addLog(if (enabled) "🟢 MEXC Live/Demo Execution ROUTED." else "🔴 MEXC Live/Demo Execution DEACTIVATED.")
+        if (enabled) {
+            validateAndRefreshMexcBalance()
+        }
+    }
+
+    fun setMexcIsDemo(isDemo: Boolean) {
+        _mexcIsDemo.value = isDemo
+        prefs.edit().putBoolean("mexc_is_demo", isDemo).apply()
+        addLog("🤖 MEXC Mode set to ${if (isDemo) "DEMO (Simulated)" else "LIVE ORDER BOOK"}")
+        validateAndRefreshMexcBalance()
+    }
+
+    fun saveMexcCredentials(apiKey: String, secretKey: String) {
+        _mexcApiKey.value = apiKey
+        _mexcSecretKey.value = secretKey
+        prefs.edit()
+            .putString("mexc_api_key", apiKey)
+            .putString("mexc_secret_key", secretKey)
+            .apply()
+        addLog("🤖 Saved MEXC API Credentials manually.")
+        validateAndRefreshMexcBalance()
+    }
+
+    fun validateAndRefreshMexcBalance() {
+        val key = _mexcApiKey.value
+        val sec = _mexcSecretKey.value
+        val isDemo = _mexcIsDemo.value
+
+        if (key.isBlank() || sec.isBlank()) {
+            _mexcConnectionStatus.value = "Credentials Missing"
+            return
+        }
+
+        _mexcConnectionStatus.value = "Connecting..."
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val balance = MexcClient.validateAndFetchBalance(key, sec, isDemo)
+                _mexcBalance.value = balance
+                _mexcConnectionStatus.value = "Connected: ${String.format(Locale.US, "%.2f", balance)} USDT (${if (isDemo) "Demo" else "Live"})"
+                addLog("🟢 MEXC API connection verified successfully. Balance: $${String.format(Locale.US, "%.2f", balance)} USDT.")
+            } catch (e: Throwable) {
+                _mexcBalance.value = 0.0
+                val errMsg = e.localizedMessage ?: "Unknown connection error"
+                _mexcConnectionStatus.value = "Error: $errMsg"
+                addLog("❌ MEXC API connection failed: $errMsg")
             }
         }
     }
@@ -295,6 +368,10 @@ class CryptoViewModel(
         // Automatically test OKX credentials if enabled on init
         if (_okxEnabled.value) {
             validateAndRefreshOkxBalance()
+        }
+        // Automatically test MEXC credentials if enabled on init
+        if (_mexcEnabled.value) {
+            validateAndRefreshMexcBalance()
         }
 
         // Automatically fetch an initial sample of coins using loaded constraints
@@ -511,6 +588,26 @@ class CryptoViewModel(
         }
     }
 
+    private suspend fun closeMexcPositionIfLive(trade: PaperTrade, exitPrice: Double) {
+        if (!trade.isMexcTrade || trade.mexcOrderId.isNullOrBlank()) return
+        try {
+            val isDemo = _mexcIsDemo.value
+            addLog("💼 [MEXC Execution] Closing live MEXC position for ${trade.symbol.uppercase()} (QTY: ${String.format(Locale.US, "%.5f", trade.quantity)}) by placing market SELL order...")
+            val closeOrdId = MexcClient.placeMarketOrder(
+                apiKey = _mexcApiKey.value,
+                secretKey = _mexcSecretKey.value,
+                isDemo = isDemo,
+                symbol = trade.symbol,
+                isBuy = false,
+                size = trade.quantity
+            )
+            addLog("🎯 [MEXC Execution] Market SELL filled on MEXC. Order ID: $closeOrdId. Position closed.")
+            validateAndRefreshMexcBalance()
+        } catch (e: Throwable) {
+            addLog("❌ [MEXC Execution Failed] Error closing MEXC order for ${trade.symbol.uppercase()}: ${e.localizedMessage ?: "Unknown error"}")
+        }
+    }
+
     private suspend fun updateLiveOpenTrades() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val openPositions = repository.getOpenTradesList()
         if (openPositions.isEmpty()) return@withContext
@@ -577,11 +674,19 @@ class CryptoViewModel(
                     viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         closeOkxPositionIfLive(trade, exitPrice)
                     }
+                } else if (trade.isMexcTrade) {
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        closeMexcPositionIfLive(trade, exitPrice)
+                    }
                 } else {
                     val returnFund = trade.investedAmount + finalPnl
                     balanceDelta += returnFund
                 }
-                val modeLabel = if (trade.isOkxTrade) "OKX Live Target" else "Paper Trigger"
+                val modeLabel = when {
+                    trade.isOkxTrade -> "OKX Live Target"
+                    trade.isMexcTrade -> "MEXC Live Target"
+                    else -> "Paper Trigger"
+                }
                 addLog("📢 [$modeLabel] ${trade.symbol.uppercase()} hit target. Closed position via $finalStatus! PnL: $${String.format(java.util.Locale.US, "%.2f", finalPnl)}")
             } else {
                 val updatedTrade = trade.copy(
@@ -614,7 +719,7 @@ class CryptoViewModel(
     ): Boolean {
         if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
         
-        if (!_okxEnabled.value) {
+        if (!_okxEnabled.value && !_mexcEnabled.value) {
             val deducted = modifyCashBalance(-investedAmount)
             if (!deducted) {
                 _error.value = "Insufficient paper trading capital"
@@ -622,18 +727,48 @@ class CryptoViewModel(
                 return false
             }
         } else {
-            // Deduct mock cash balance if available, but do not block if it is depleted since we use OKX real capital
+            // Deduct mock cash balance if available, but do not block if it is depleted since we use exchange real capital
             modifyCashBalance(-investedAmount)
         }
 
-        if (_okxEnabled.value) {
+        if (_mexcEnabled.value) {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    addLog("💼 [MEXC Execution] Initiating market ${if (signalType == "LONG") "BUY" else "SELL (Short)"} for ${symbol.uppercase()}...")
+                    
+                    if (signalType == "SHORT") {
+                        addLog("⚠️ [MEXC Spot Limit] MEXC spot account does not support short selling directly. Executing as paper position instead.")
+                        insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
+                        return@launch
+                    }
+
+                    val ordId = MexcClient.placeMarketOrder(
+                        apiKey = _mexcApiKey.value,
+                        secretKey = _mexcSecretKey.value,
+                        isDemo = _mexcIsDemo.value,
+                        symbol = symbol,
+                        isBuy = true,
+                        size = investedAmount
+                    )
+
+                    addLog("🎯 [MEXC Execution] Spot Market BUY order filled on MEXC. Order ID: $ordId")
+                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isMexc = true, mexcOrderId = ordId)
+                    validateAndRefreshMexcBalance()
+                } catch (e: Throwable) {
+                    val errorMsg = e.localizedMessage ?: "Unknown Error"
+                    addLog("❌ [MEXC Execution Failed] Error placing order for ${symbol.uppercase()}: $errorMsg. Saving as paper position only.")
+                    // Fallback to regular paper trade in DB
+                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
+                }
+            }
+        } else if (_okxEnabled.value) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     addLog("💼 [OKX Execution] Initiating market ${if (signalType == "LONG") "BUY" else "SELL (Short)"} for ${symbol.uppercase()}...")
                     
                     if (signalType == "SHORT") {
                         addLog("⚠️ [OKX Spot Limit] OKX spot account does not support short selling directly. Executing as paper position instead.")
-                        insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = false, orderId = null)
+                        insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
                         return@launch
                     }
 
@@ -653,14 +788,13 @@ class CryptoViewModel(
                 } catch (e: Exception) {
                     val errorMsg = e.localizedMessage ?: "Unknown Error"
                     addLog("❌ [OKX Execution Failed] Error placing order for ${symbol.uppercase()}: $errorMsg. Saving as paper position only.")
-                    // Fallback to regular paper trade in DB
-                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = false, orderId = null)
+                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
                 }
             }
         } else {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = false, orderId = null)
+                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
                 } catch (e: Exception) {
                     Log.e("CryptoViewModel", "Error opening paper trade: ${e.message}", e)
                 }
@@ -680,8 +814,10 @@ class CryptoViewModel(
         takeProfit: Double,
         investedAmount: Double,
         strategy: String,
-        isOkx: Boolean,
-        orderId: String?
+        isOkx: Boolean = false,
+        orderId: String? = null,
+        isMexc: Boolean = false,
+        mexcOrderId: String? = null
     ) {
         val quantity = investedAmount / entryPrice
         val newTrade = PaperTrade(
@@ -700,10 +836,16 @@ class CryptoViewModel(
             investedAmount = investedAmount,
             strategy = strategy,
             isOkxTrade = isOkx,
-            okxOrderId = orderId
+            okxOrderId = orderId,
+            isMexcTrade = isMexc,
+            mexcOrderId = mexcOrderId
         )
         repository.insertPaperTrade(newTrade)
-        val modeText = if (isOkx) "OKX Live Order" else "Paper Trade"
+        val modeText = when {
+            isOkx -> "OKX Live Order"
+            isMexc -> "MEXC Live Order"
+            else -> "Paper Trade"
+        }
         addLog("🚀 Opened $modeText: $signalType ${symbol.uppercase()} size: $${String.format(Locale.US, "%.2f", investedAmount)}")
     }
 
@@ -729,11 +871,17 @@ class CryptoViewModel(
 
                 if (trade.isOkxTrade) {
                     closeOkxPositionIfLive(trade, exitPrice)
+                } else if (trade.isMexcTrade) {
+                    closeMexcPositionIfLive(trade, exitPrice)
                 } else {
                     modifyCashBalance(trade.investedAmount + pnl)
                 }
                 
-                val sourceLabel = if (trade.isOkxTrade) "live OKX position" else "paper trade"
+                val sourceLabel = when {
+                    trade.isOkxTrade -> "live OKX position"
+                    trade.isMexcTrade -> "live MEXC position"
+                    else -> "paper trade"
+                }
                 addLog("🔴 Manually closed $sourceLabel ${trade.symbol.uppercase()} at $${String.format(java.util.Locale.US, "%.4f", exitPrice)}. PnL: $${String.format(java.util.Locale.US, "%.2f", pnl)}")
             } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Error closing paper trade: ${e.message}", e)

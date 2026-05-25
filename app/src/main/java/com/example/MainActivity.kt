@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
@@ -43,6 +44,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -3549,6 +3552,23 @@ fun OpenPositionCard(trade: PaperTrade, onCloseClick: () -> Unit) {
                                     )
                                 }
                             }
+                            if (trade.isMexcTrade) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(CyberAccentGreen)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "MEXC LIVE",
+                                        fontSize = 7.5.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = CyberDark,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
                         }
                         Text(
                             text = trade.name,
@@ -3709,6 +3729,24 @@ fun ClosedPositionCard(trade: PaperTrade) {
                                 ) {
                                     Text(
                                         text = "OKX SPOT",
+                                        fontSize = 7.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = CyberAccentGreen,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                            if (trade.isMexcTrade) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(CyberAccentGreen.copy(alpha = 0.2f))
+                                        .border(0.5.dp, CyberAccentGreen, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(
+                                        text = "MEXC SPOT",
                                         fontSize = 7.sp,
                                         fontWeight = FontWeight.Black,
                                         color = CyberAccentGreen,
@@ -3892,8 +3930,7 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                 }
             }
         }
-
-        // 1B. OKX LIVE TRADING SETUP CARD
+           // 1B. CONSOLIDATED EXCHANGE SETUP CARD WITH DROP DOWN TABS (OKX / MEXC)
         item {
             val okxEnabled by viewModel.okxEnabled.collectAsState()
             val okxIsDemo by viewModel.okxIsDemo.collectAsState()
@@ -3903,26 +3940,45 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
             val okxConnectionStatus by viewModel.okxConnectionStatus.collectAsState()
             val okxBalance by viewModel.okxBalance.collectAsState()
 
-            var apiKeyInput by remember { mutableStateOf(okxApiKey) }
-            var secretKeyInput by remember { mutableStateOf(okxSecretKey) }
-            var passphraseInput by remember { mutableStateOf(okxPassphrase) }
+            val mexcEnabled by viewModel.mexcEnabled.collectAsState()
+            val mexcIsDemo by viewModel.mexcIsDemo.collectAsState()
+            val mexcApiKey by viewModel.mexcApiKey.collectAsState()
+            val mexcSecretKey by viewModel.mexcSecretKey.collectAsState()
+            val mexcConnectionStatus by viewModel.mexcConnectionStatus.collectAsState()
+            val mexcBalance by viewModel.mexcBalance.collectAsState()
 
-            // Sync with viewModel when credentials change in DB
+            var okxApiKeyInput by remember { mutableStateOf(okxApiKey) }
+            var okxSecretKeyInput by remember { mutableStateOf(okxSecretKey) }
+            var okxPassphraseInput by remember { mutableStateOf(okxPassphrase) }
+
+            var mexcApiKeyInput by remember { mutableStateOf(mexcApiKey) }
+            var mexcSecretKeyInput by remember { mutableStateOf(mexcSecretKey) }
+
+            // Sync with viewModel when credentials change in DB or SharedPreferences
             LaunchedEffect(okxApiKey, okxSecretKey, okxPassphrase) {
-                apiKeyInput = okxApiKey
-                secretKeyInput = okxSecretKey
-                passphraseInput = okxPassphrase
+                okxApiKeyInput = okxApiKey
+                okxSecretKeyInput = okxSecretKey
+                okxPassphraseInput = okxPassphrase
             }
+            LaunchedEffect(mexcApiKey, mexcSecretKey) {
+                mexcApiKeyInput = mexcApiKey
+                mexcSecretKeyInput = mexcSecretKey
+            }
+
+            // Drop down tabs state
+            var selectedExchangeTab by remember { mutableStateOf("OKX") } // "OKX" or "MEXC"
+            var dropdownExpanded by remember { mutableStateOf(false) }
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("okx_setup_card"),
+                    .testTag("exchange_setup_card"),
                 colors = CardDefaults.cardColors(containerColor = CyberCard),
                 shape = RoundedCornerShape(24.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
+                    // Title and Routing Switches
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -3930,7 +3986,7 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                     ) {
                         Column {
                             Text(
-                                text = "OKX API ROUTING PROTOCOL",
+                                text = "EXCHANGE API GATEWAY ROUTING",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CyberGold,
@@ -3939,115 +3995,141 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Live Order Execution",
+                                text = "$selectedExchangeTab API Protocol",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
                                 color = CyberTextWhite
                             )
                         }
 
+                        // Switch connected to current selected exchange
+                        val currentEnabled = if (selectedExchangeTab == "OKX") okxEnabled else mexcEnabled
                         Switch(
-                            checked = okxEnabled,
-                            onCheckedChange = { viewModel.setOkxEnabled(it) },
+                            checked = currentEnabled,
+                            onCheckedChange = { isChecked ->
+                                if (selectedExchangeTab == "OKX") {
+                                    viewModel.setOkxEnabled(isChecked)
+                                } else {
+                                    viewModel.setMexcEnabled(isChecked)
+                                }
+                            },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = CyberAccentGreen,
                                 uncheckedThumbColor = CyberTextDim,
                                 uncheckedTrackColor = CyberSurface
                             ),
-                            modifier = Modifier.testTag("okx_routing_switch")
+                            modifier = Modifier.testTag("exchange_routing_switch")
                         )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // OKX Balance and Connection status banner
+                    // --- DROP DOWN TABS FOR SELECTING OKX, MEXC ---
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(CyberDark, RoundedCornerShape(14.dp))
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "OKX EXCHANGE BALANCE",
-                                fontSize = 8.sp,
-                                color = CyberTextDim,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (okxEnabled && okxConnectionStatus.contains("Connected")) {
-                                    "$${formatCurrency(okxBalance)} USDT"
-                                } else {
-                                    "Locked / Standby"
-                                },
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black,
-                                color = if (okxEnabled && okxConnectionStatus.contains("Connected")) CyberAccentGreen else CyberTextDim
-                            )
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = "ROUTING GATEWAY",
-                                fontSize = 8.sp,
-                                color = CyberTextDim,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = okxConnectionStatus,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = when {
-                                    okxConnectionStatus.contains("Connected") -> CyberAccentGreen
-                                    okxConnectionStatus.contains("Connecting") -> CyberGold
-                                    okxConnectionStatus.contains("Error") -> CyberAccentRed
-                                    else -> CyberTextDim
-                                }
-                            )
+                        Text(
+                            text = "SELECT ACTIVE EXCHANGE",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        
+                        Box {
+                            // Dropdown selector trigger
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(CyberDark)
+                                    .clickable { dropdownExpanded = true }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (selectedExchangeTab == "OKX") "🔥 OKX GLOBAL" else "⚡ MEXC PRO",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = CyberAccentGreen,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Drop Down Tabs",
+                                    tint = CyberAccentGreen,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = dropdownExpanded,
+                                onDismissRequest = { dropdownExpanded = false },
+                                modifier = Modifier.background(CyberCard)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(
+                                            "OKX Global Exchange", 
+                                            color = CyberTextWhite, 
+                                            fontSize = 11.sp, 
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        ) 
+                                    },
+                                    onClick = {
+                                        selectedExchangeTab = "OKX"
+                                        dropdownExpanded = false
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { 
+                                        Text(
+                                            "MEXC Pro Exchange", 
+                                            color = CyberTextWhite, 
+                                            fontSize = 11.sp, 
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        ) 
+                                    },
+                                    onClick = {
+                                        selectedExchangeTab = "MEXC"
+                                        dropdownExpanded = false
+                                    }
+                                )
+                            }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // Demo vs Live Switch
-                    Text(
-                        text = "EXECUTION ROUTE MODE",
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CyberTextDim,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
+                    // Inline tabs row for beautiful alternative selection
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(CyberDark, RoundedCornerShape(12.dp))
                             .padding(4.dp)
                     ) {
-                        listOf(true, false).forEach { isDemo ->
-                            val isSelected = okxIsDemo == isDemo
+                        listOf("OKX", "MEXC").forEach { exch ->
+                            val isSelected = selectedExchangeTab == exch
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isSelected) CyberSlate else Color.Transparent)
-                                    .clickable { viewModel.setOkxIsDemo(isDemo) }
+                                    .clickable { selectedExchangeTab = exch }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = if (isDemo) "DEMO/SIMULATED TRADING" else "LIVE ORDER BOOK",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) CyberAccentGreen else CyberTextDim
+                                    text = if (exch == "OKX") "OKX GLOBAL CONNECTION" else "MEXC PLATFORM CONNECTION",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (isSelected) CyberAccentGreen else CyberTextDim,
+                                    fontFamily = FontFamily.Monospace
                                 )
                             }
                         }
@@ -4055,136 +4137,432 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Input Form Fields (API Key, Secret Key, Passphrase)
-                    Text(
-                        text = "OKX MANUALLY CONFIGURED API KEY",
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CyberTextDim,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = apiKeyInput,
-                        onValueChange = { apiKeyInput = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("okx_api_key_input"),
-                        placeholder = { Text("Enter your OKX API Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyberAccentGreen,
-                            unfocusedBorderColor = CyberSurface,
-                            focusedTextColor = CyberTextWhite,
-                            unfocusedTextColor = CyberTextWhite,
-                            focusedContainerColor = CyberDark,
-                            unfocusedContainerColor = CyberDark
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "OKX API SECRET KEY",
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CyberTextDim,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = secretKeyInput,
-                        onValueChange = { secretKeyInput = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("okx_secret_key_input"),
-                        placeholder = { Text("Enter your OKX Secret Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyberAccentGreen,
-                            unfocusedBorderColor = CyberSurface,
-                            focusedTextColor = CyberTextWhite,
-                            unfocusedTextColor = CyberTextWhite,
-                            focusedContainerColor = CyberDark,
-                            unfocusedContainerColor = CyberDark
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "OKX API PASSPHRASE",
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CyberTextDim,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = passphraseInput,
-                        onValueChange = { passphraseInput = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("okx_passphrase_input"),
-                        placeholder = { Text("Enter your OKX Passphrase", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = CyberAccentGreen,
-                            unfocusedBorderColor = CyberSurface,
-                            focusedTextColor = CyberTextWhite,
-                            unfocusedTextColor = CyberTextWhite,
-                            focusedContainerColor = CyberDark,
-                            unfocusedContainerColor = CyberDark
-                        ),
-                        shape = RoundedCornerShape(12.dp),
-                        singleLine = true,
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Connect/Update credentials triggers
-                    Button(
-                        onClick = {
-                            viewModel.saveOkxCredentials(
-                                apiKey = apiKeyInput.trim(),
-                                secretKey = secretKeyInput.trim(),
-                                passphrase = passphraseInput.trim()
-                            )
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("okx_connect_button"),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (apiKeyInput.isNotBlank() && secretKeyInput.isNotBlank() && passphraseInput.isNotBlank()) {
-                                CyberAccentGreen
-                            } else {
-                                CyberSlate
-                            }
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
+                    if (selectedExchangeTab == "OKX") {
+                        // --- OKX PANEL RENDER ---
+                        // Balance and connection status banner
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(CyberDark, RoundedCornerShape(14.dp))
+                                .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                tint = if (apiKeyInput.isNotBlank() && secretKeyInput.isNotBlank() && passphraseInput.isNotBlank()) CyberDark else CyberTextDim,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "TEST & SAVE OKX CONFIG",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (apiKeyInput.isNotBlank() && secretKeyInput.isNotBlank() && passphraseInput.isNotBlank()) CyberDark else CyberTextDim,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "OKX EXCHANGE BALANCE",
+                                    fontSize = 8.sp,
+                                    color = CyberTextDim,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (okxEnabled && okxConnectionStatus.contains("Connected")) {
+                                        "$${formatCurrency(okxBalance)} USDT"
+                                    } else {
+                                        "Locked / Standby"
+                                    },
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (okxEnabled && okxConnectionStatus.contains("Connected")) CyberAccentGreen else CyberTextDim
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "ROUTING GATEWAY",
+                                    fontSize = 8.sp,
+                                    color = CyberTextDim,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = okxConnectionStatus,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when {
+                                        okxConnectionStatus.contains("Connected") -> CyberAccentGreen
+                                        okxConnectionStatus.contains("Connecting") -> CyberGold
+                                        okxConnectionStatus.contains("Error") -> CyberAccentRed
+                                        else -> CyberTextDim
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Demo vs Live Switch Mode
+                        Text(
+                            text = "EXECUTION ROUTE MODE (OKX)",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(CyberDark, RoundedCornerShape(12.dp))
+                                .padding(4.dp)
+                        ) {
+                            listOf(true, false).forEach { isDemo ->
+                                val isSelected = okxIsDemo == isDemo
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) CyberSlate else Color.Transparent)
+                                        .clickable { viewModel.setOkxIsDemo(isDemo) }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (isDemo) "DEMO/SIMULATED TRADING" else "LIVE ORDER BOOK",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) CyberAccentGreen else CyberTextDim
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Form Key Inputs
+                        Text(
+                            text = "OKX MANUALLY CONFIGURED API KEY",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = okxApiKeyInput,
+                            onValueChange = { okxApiKeyInput = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("okx_api_key_input"),
+                            placeholder = { Text("Enter your OKX API Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "OKX API SECRET KEY",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = okxSecretKeyInput,
+                            onValueChange = { okxSecretKeyInput = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("okx_secret_key_input"),
+                            placeholder = { Text("Enter your OKX Secret Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "OKX API PASSPHRASE",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = okxPassphraseInput,
+                            onValueChange = { okxPassphraseInput = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("okx_passphrase_input"),
+                            placeholder = { Text("Enter your OKX Passphrase", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = {
+                                viewModel.saveOkxCredentials(
+                                    apiKey = okxApiKeyInput.trim(),
+                                    secretKey = okxSecretKeyInput.trim(),
+                                    passphrase = okxPassphraseInput.trim()
+                                )
+                            },
+                            enabled = okxApiKeyInput.isNotBlank() && okxSecretKeyInput.isNotBlank() && okxPassphraseInput.isNotBlank(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("okx_connect_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (okxApiKeyInput.isNotBlank() && okxSecretKeyInput.isNotBlank() && okxPassphraseInput.isNotBlank()) {
+                                    CyberAccentGreen
+                                } else {
+                                    CyberSlate
+                                },
+                                disabledContainerColor = CyberSlate
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = if (okxApiKeyInput.isNotBlank() && okxSecretKeyInput.isNotBlank() && okxPassphraseInput.isNotBlank()) CyberDark else CyberTextDim,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "TEST & SAVE OKX CONFIG",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (okxApiKeyInput.isNotBlank() && okxSecretKeyInput.isNotBlank() && okxPassphraseInput.isNotBlank()) CyberDark else CyberTextDim,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    } else {
+                        // --- MEXC PANEL RENDER ---
+                        // Balance and connection status banner
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(CyberDark, RoundedCornerShape(14.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "MEXC EXCHANGE BALANCE",
+                                    fontSize = 8.sp,
+                                    color = CyberTextDim,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (mexcEnabled && mexcConnectionStatus.contains("Connected")) {
+                                        "$${formatCurrency(mexcBalance)} USDT"
+                                    } else {
+                                        "Locked / Standby"
+                                    },
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = if (mexcEnabled && mexcConnectionStatus.contains("Connected")) CyberAccentGreen else CyberTextDim
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "ROUTING GATEWAY",
+                                    fontSize = 8.sp,
+                                    color = CyberTextDim,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = mexcConnectionStatus,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when {
+                                        mexcConnectionStatus.contains("Connected") -> CyberAccentGreen
+                                        mexcConnectionStatus.contains("Connecting") -> CyberGold
+                                        mexcConnectionStatus.contains("Error") -> CyberAccentRed
+                                        else -> CyberTextDim
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Demo vs Live Switch Mode
+                        Text(
+                            text = "EXECUTION ROUTE MODE (MEXC)",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(CyberDark, RoundedCornerShape(12.dp))
+                                .padding(4.dp)
+                        ) {
+                            listOf(true, false).forEach { isDemo ->
+                                val isSelected = mexcIsDemo == isDemo
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) CyberSlate else Color.Transparent)
+                                        .clickable { viewModel.setMexcIsDemo(isDemo) }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (isDemo) "DEMO/SIMULATED TRADING" else "LIVE ORDER BOOK",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) CyberAccentGreen else CyberTextDim
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Form Key Inputs
+                        Text(
+                            text = "MEXC API ACCESS KEY (MANUAL)",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = mexcApiKeyInput,
+                            onValueChange = { mexcApiKeyInput = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("mexc_api_key_input"),
+                            placeholder = { Text("Enter your MEXC Access Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "MEXC API SECRET SIGN KEY (MANUAL)",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = mexcSecretKeyInput,
+                            onValueChange = { mexcSecretKeyInput = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("mexc_secret_key_input"),
+                            placeholder = { Text("Enter your MEXC Secret Key", color = CyberTextDim.copy(alpha = 0.4f), fontSize = 11.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = {
+                                viewModel.saveMexcCredentials(
+                                    apiKey = mexcApiKeyInput.trim(),
+                                    secretKey = mexcSecretKeyInput.trim()
+                                )
+                            },
+                            enabled = mexcApiKeyInput.isNotBlank() && mexcSecretKeyInput.isNotBlank(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("mexc_connect_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (mexcApiKeyInput.isNotBlank() && mexcSecretKeyInput.isNotBlank()) {
+                                    CyberAccentGreen
+                                } else {
+                                    CyberSlate
+                                },
+                                disabledContainerColor = CyberSlate
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = if (mexcApiKeyInput.isNotBlank() && mexcSecretKeyInput.isNotBlank()) CyberDark else CyberTextDim,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "TEST & SAVE MEXC CONFIG",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (mexcApiKeyInput.isNotBlank() && mexcSecretKeyInput.isNotBlank()) CyberDark else CyberTextDim,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
                         }
                     }
                 }

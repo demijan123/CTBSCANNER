@@ -24,5 +24,7 @@ data class PaperTrade(
     val investedAmount: Double = 0.0, // Initial amount in USD
     val strategy: String = "Manual Position",
     val isOkxTrade: Boolean = false,
-    val okxOrderId: String? = null
+    val okxOrderId: String? = null,
+    val isMexcTrade: Boolean = false,
+    val mexcOrderId: String? = null
 )
