@@ -247,7 +247,7 @@ fun MainDesktopDashboard(
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     val latestBacktestResults = remember { mutableStateMapOf<String, SimulationResult>() }
-    val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "AUTO BOT", "PAPER TRADING", "MEXC CONFIG", "MEXC DEMO TRADES", "MEXC LIVE TRADES")
+    val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "AUTO BOT", "PAPER TRADING", "MEXC CONFIG", "MEXC DEMO TRADES", "MEXC LIVE TRADES", "TRADE ANALYTICS")
     var selectedCoinForDetails by remember { mutableStateOf<Coin?>(null) }
 
     val scannedCoins by viewModel.scannedCoins.collectAsState()
@@ -312,6 +312,7 @@ fun MainDesktopDashboard(
                         6 -> Icons.Default.Settings
                         7 -> Icons.Default.Star
                         8 -> Icons.Default.ShoppingCart
+                        9 -> Icons.Default.Refresh
                         else -> Icons.Default.Info
                     }
                     Tab(
@@ -340,24 +341,7 @@ fun MainDesktopDashboard(
                 }
             }
 
-            // --- Horizontal Scroll Navigation Hint ---
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(CyberSurface.copy(alpha = 0.7f))
-                    .padding(vertical = 5.dp, horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = "◀  SLIDE TABS LEFT/RIGHT FOR MORE CHANNELS (AUTO BOT, MEXC CONFIG, TRADES)  ▶",
-                    color = CyberGold,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.sp
-                )
-            }
+
 
             // --- Active Tab Screen Router ---
             Box(
@@ -397,6 +381,7 @@ fun MainDesktopDashboard(
                     6 -> MexcTradingConsoleTab(viewModel = viewModel)
                     7 -> MexcTradesTab(viewModel = viewModel, isDemo = true)
                     8 -> MexcTradesTab(viewModel = viewModel, isDemo = false)
+                    9 -> TradeAnalyticsTab(viewModel = viewModel)
                 }
             }
 
@@ -3259,8 +3244,14 @@ fun formatLargeNumber(num: Double): String {
 @Composable
 fun PaperTradingPortfolioTab(viewModel: CryptoViewModel) {
     val cashBalance by viewModel.cashBalance.collectAsState()
-    val openTrades by viewModel.openTrades.collectAsState()
-    val closedTrades by viewModel.closedTrades.collectAsState()
+    val rawOpenTrades by viewModel.openTrades.collectAsState()
+    val rawClosedTrades by viewModel.closedTrades.collectAsState()
+    val botEnabled by viewModel.botEnabled.collectAsState()
+    val scanLogs by viewModel.scanLogs.collectAsState()
+
+    // Only include non-MEXC regular paper trades in the paper portfolio tab
+    val openTrades = rawOpenTrades.filter { !it.isMexcTrade }
+    val closedTrades = rawClosedTrades.filter { !it.isMexcTrade }
 
     // Calculate portfolio valuation
     val unrealizedPnL = openTrades.sumOf { it.pnl }
@@ -3511,6 +3502,143 @@ fun PaperTradingPortfolioTab(viewModel: CryptoViewModel) {
             } else {
                 items(closedTrades, key = { it.id }) { trade ->
                     ClosedPositionCard(trade = trade)
+                }
+            }
+        }
+
+        // 4. ALPHABOT LIVE CONSOLE TERMINAL AND STATUS (only show status in paper trading tab only)
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("paper_bot_status_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(if (botEnabled) Color(0xFF22C55E) else CyberAccentRed, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "ALPHABOT QUANT ENGINE STATUS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberGold,
+                                letterSpacing = 1.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (botEnabled) "ENGINE: RUNNING (Scanning CoinGecko API...)" else "ENGINE: STANDBY (Off)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                        color = CyberTextWhite
+                    )
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("paper_bot_terminal_card"),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(Color(0xFF22C55E), CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "ALPHABOT TELEMETRY FEED",
+                                fontSize = 10.sp,
+                                color = Color(0xFF94A3B8),
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.clearLogs() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Clear Terminal logs",
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val filteredPaperLogs = scanLogs.filter { !it.contains("MEXC") }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .background(Color(0xFF020617), RoundedCornerShape(12.dp))
+                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        if (filteredPaperLogs.isEmpty()) {
+                            Text(
+                                "[SYSTEM STANDBY] Feed awaiting routing instructions...",
+                                color = Color(0xFF64748B),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                reverseLayout = true
+                            ) {
+                                items(filteredPaperLogs.reversed()) { log ->
+                                    Text(
+                                        text = log,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = if (log.contains("🤖") || log.contains("🟢") || log.contains("🚀")) {
+                                            Color(0xFF4ADE80)
+                                        } else if (log.contains("🛑") || log.contains("❌") || log.contains("🔴")) {
+                                            Color(0xFFF87171)
+                                        } else {
+                                            Color(0xFF38BDF8)
+                                        },
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -3846,6 +3974,13 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
     val botTargetCoinMode by viewModel.botTargetCoinMode.collectAsState()
     val botSelectedCoinIds by viewModel.botSelectedCoinIds.collectAsState()
     val scannedCoins by viewModel.scannedCoins.collectAsState()
+
+    val mexcEnabled by viewModel.mexcEnabled.collectAsState()
+    val mexcIsDemo by viewModel.mexcIsDemo.collectAsState()
+    val mexcApiKey by viewModel.mexcApiKey.collectAsState()
+    val mexcSecretKey by viewModel.mexcSecretKey.collectAsState()
+    val mexcConnectionStatus by viewModel.mexcConnectionStatus.collectAsState()
+    val mexcBalance by viewModel.mexcBalance.collectAsState()
 
     val blueprints = listOf(
         "EMA Continuation Cross (V3)",
@@ -4304,97 +4439,6 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                 }
             }
         }
-
-        // 4. ALPHABOT LIVE CONSOLE TERMINAL
-        item {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("bot_terminal_card"),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
-                shape = RoundedCornerShape(24.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(Color(0xFF22C55E), CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "ALPHABOT TELEMETRY FEED",
-                                fontSize = 10.sp,
-                                color = Color(0xFF94A3B8),
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = 1.sp
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.clearLogs() },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Clear Terminal logs",
-                                tint = Color(0xFF64748B),
-                                modifier = Modifier.size(13.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .background(Color(0xFF020617), RoundedCornerShape(12.dp))
-                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    ) {
-                        if (scanLogs.isEmpty()) {
-                            Text(
-                                "[SYSTEM STANDBY] Feed awaiting routing instructions...",
-                                color = Color(0xFF64748B),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp
-                            )
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                reverseLayout = true
-                            ) {
-                                items(scanLogs.reversed()) { log ->
-                                    Text(
-                                        text = log,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 10.sp,
-                                        color = if (log.contains("🤖") || log.contains("🟢") || log.contains("🚀")) {
-                                            Color(0xFF4ADE80)
-                                        } else if (log.contains("🛑") || log.contains("❌") || log.contains("🔴")) {
-                                            Color(0xFFF87171)
-                                        } else {
-                                            Color(0xFF38BDF8)
-                                        },
-                                        lineHeight = 14.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -4468,26 +4512,8 @@ fun OldAutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                             )
                         }
                     }
-                }
-            }
-        }
-           // 1B. CONSOLIDATED EXCHANGE SETUP CARD WITH DROP DOWN TABS (OKX / MEXC)
+                }            // 1B. CONSOLIDATED EXCHANGE SETUP CARD WITH DROP DOWN TABS (OKX / MEXC)
         item {
-            val okxEnabled by viewModel.okxEnabled.collectAsState()
-            val okxIsDemo by viewModel.okxIsDemo.collectAsState()
-            val okxApiKey by viewModel.okxApiKey.collectAsState()
-            val okxSecretKey by viewModel.okxSecretKey.collectAsState()
-            val okxPassphrase by viewModel.okxPassphrase.collectAsState()
-            val okxConnectionStatus by viewModel.okxConnectionStatus.collectAsState()
-            val okxBalance by viewModel.okxBalance.collectAsState()
-
-            val mexcEnabled by viewModel.mexcEnabled.collectAsState()
-            val mexcIsDemo by viewModel.mexcIsDemo.collectAsState()
-            val mexcApiKey by viewModel.mexcApiKey.collectAsState()
-            val mexcSecretKey by viewModel.mexcSecretKey.collectAsState()
-            val mexcConnectionStatus by viewModel.mexcConnectionStatus.collectAsState()
-            val mexcBalance by viewModel.mexcBalance.collectAsState()
-
             var okxApiKeyInput by remember { mutableStateOf(okxApiKey) }
             var okxSecretKeyInput by remember { mutableStateOf(okxSecretKey) }
             var okxPassphraseInput by remember { mutableStateOf(okxPassphrase) }
@@ -6234,37 +6260,6 @@ fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
                 }
             }
         }
-
-        // --- 4. TERMINAL STREAM ---
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = CyberCard),
-                shape = RoundedCornerShape(24.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Text("MEXC SYSTEM REALTIME TERMINAL FEED", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Box(modifier = Modifier.fillMaxWidth().height(140.dp).background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp)) {
-                        val filteredLogs = scanLogs.filter { it.contains("MEXC") || it.contains("P&L Balancer") || it.contains("Crusader") }
-                        if (filteredLogs.isEmpty()) {
-                            Text("[SYSTEM STREAM] Awaiting MEXC telemetry triggers...", color = Color(0xFF64748B), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                                reverseLayout = true
-                            ) {
-                                items(filteredLogs.reversed()) { log ->
-                                    Text(text = log, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (log.contains("🤖") || log.contains("🟢") || log.contains("🚀") || log.contains("Connected")) CyberAccentGreen else if (log.contains("❌") || log.contains("🔴") || log.contains("Failed")) CyberAccentRed else Color(0xFF38BDF8))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -6272,8 +6267,12 @@ fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
 fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
     val openTradesAll by viewModel.openTrades.collectAsState()
     val closedTradesAll by viewModel.closedTrades.collectAsState()
-    val mexcOpenTrades = openTradesAll.filter { it.isMexcTrade && it.isMexcDemoTrade == isDemo }
-    val mexcClosedTrades = closedTradesAll.filter { it.isMexcTrade && it.isMexcDemoTrade == isDemo }
+    val scanLogs by viewModel.scanLogs.collectAsState()
+    val mexcDemoBalance by viewModel.mexcDemoBalance.collectAsState()
+    val mexcBalance by viewModel.mexcBalance.collectAsState()
+    val mexcPnLBalancerEnabled by viewModel.mexcPnLBalancerEnabled.collectAsState()
+    val mexcOpenTrades = openTradesAll.filter { tr -> tr.isMexcTrade && tr.isMexcDemoTrade == isDemo }
+    val mexcClosedTrades = closedTradesAll.filter { tr -> tr.isMexcTrade && tr.isMexcDemoTrade == isDemo }
 
     var subTabSelection by remember { mutableStateOf(0) }
     val labelPrefix = if (isDemo) "DEMO SPOT" else "LIVE SPOT"
@@ -6294,8 +6293,12 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text("$labelPrefix ACCOUNT PERFORMANCE SUMMARY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
                     Spacer(modifier = Modifier.height(12.dp))
+                    
                     val mexcRealized = mexcClosedTrades.sumOf { it.pnl }
                     val mexcUnrealized = mexcOpenTrades.sumOf { it.pnl }
+                    val availableBalance = if (isDemo) mexcDemoBalance else mexcBalance
+                    val netPortfolioValue = availableBalance + mexcUnrealized
+
                     Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column {
                             Text("REALIZED HISTORIC P&L", fontSize = 8.sp, color = CyberTextDim)
@@ -6306,13 +6309,29 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                             Text("$${formatCurrency(mexcUnrealized)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (mexcUnrealized >= 0) CyberAccentGreen else CyberAccentRed)
                         }
                     }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("AVAILABLE BALANCE", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(availableBalance)} USDT", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
+                        }
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text("NET PORTFOLIO VALUE", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(netPortfolioValue)} USDT", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyberGold)
+                        }
+                    }
                 }
             }
         }
 
         // --- SECURITY PRE-EMPTIVE PROFIT HARVESTER (P&L BALANCER) ---
         item {
-            val mexcPnLBalancerEnabled by viewModel.mexcPnLBalancerEnabled.collectAsState()
             val mexcRealized = mexcClosedTrades.sumOf { it.pnl }
             val mexcUnrealized = mexcOpenTrades.sumOf { it.pnl }
 
@@ -6412,18 +6431,34 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                                     color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontSize = 12.sp, fontWeight = FontWeight.Bold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
-                                    Text("ENTRY PRICE", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("ENTRY PRICE (EP)", fontSize = 8.sp, color = CyberTextDim)
                                     Text("$${formatPrice(tr.entryPrice)}", fontSize = 11.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
                                 }
                                 Column {
+                                    Text("STOP LOSS (SL)", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.stopLoss)}", fontSize = 11.sp, color = CyberAccentRed, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text("TAKE PROFIT (TP)", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.takeProfit)}", fontSize = 11.sp, color = CyberAccentGreen, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
                                     Text("MARK PRICE", fontSize = 8.sp, color = CyberTextDim)
                                     Text("$${formatPrice(tr.currentPrice)}", fontSize = 11.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
                                 }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("EXECUTION TIME", fontSize = 8.sp, color = CyberTextDim)
+                                    val formattedTime = java.text.SimpleDateFormat("MMM dd, HH:mm:ss", java.util.Locale.US).format(java.util.Date(tr.timestamp))
+                                    Text(formattedTime, fontSize = 10.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text("PNL ($)", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("FLOATING PNL ($)", fontSize = 8.sp, color = CyberTextDim)
                                     Text("$${formatCurrency(tr.pnl)}", fontSize = 11.sp, color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                                 }
                             }
@@ -6457,7 +6492,7 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Row {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(tr.symbol.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(if (isDemo) "[DEMO]" else "[LIVE]", fontSize = 8.sp, color = CyberTextDim)
@@ -6466,11 +6501,693 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                                 }
                                 Text("$${formatCurrency(tr.pnl)}", color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("EP / EXIT PRICE", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.entryPrice)} / $${formatPrice(tr.exitPrice ?: tr.currentPrice)}", fontSize = 10.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text("SL / TP", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.stopLoss)} / $${formatPrice(tr.takeProfit)}", fontSize = 10.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("CLOSED TIME", fontSize = 8.sp, color = CyberTextDim)
+                                    val formattedTime = java.text.SimpleDateFormat("MMM dd, HH:mm:ss", java.util.Locale.US).format(java.util.Date(tr.exitTimestamp ?: tr.timestamp))
+                                    Text(formattedTime, fontSize = 10.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text("JUSTIFICATION: ${tr.whyTradeReason}", fontSize = 9.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
             }
+        }
+
+        // --- MEXC TELEMETRY TERMINAL FEED ---
+        item {
+            val filteredLogs = scanLogs.filter { log ->
+                val isMexc = log.contains("MEXC") || log.contains("P&L Balancer")
+                val isDemoLog = log.contains("DEMO") || log.contains("Simulated")
+                if (isDemo) {
+                    isMexc
+                } else {
+                    isMexc && !isDemoLog
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("mexc_terminal_card_${if (isDemo) "demo" else "live"}"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("$labelPrefix TELEMETRY STREAM", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(modifier = Modifier.fillMaxWidth().height(140.dp).background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp)) {
+                        if (filteredLogs.isEmpty()) {
+                            Text("[SYSTEM STREAM] Awaiting $labelPrefix telemetry triggers...", color = Color(0xFF64748B), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                reverseLayout = true
+                            ) {
+                                items(filteredLogs.reversed()) { log ->
+                                    Text(
+                                        text = log,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = if (log.contains("🤖") || log.contains("🟢") || log.contains("🚀") || log.contains("Connected")) {
+                                            CyberAccentGreen
+                                        } else if (log.contains("❌") || log.contains("🔴") || log.contains("Failed")) {
+                                            CyberAccentRed
+                                        } else {
+                                            Color(0xFF38BDF8)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
+    val allTransactions by viewModel.closedTrades.collectAsState()
+    val aiInsights by viewModel.aiInsights.collectAsState()
+    val isGeneratingAi by viewModel.isGeneratingAiInsights.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    // Filters States
+    var selectedStrategyFilter by remember { mutableStateOf("ALL") }
+    var selectedCoinFilter by remember { mutableStateOf("ALL") }
+    var selectedTimeframeFilter by remember { mutableStateOf("ALL") }
+    var selectedExchangeFilter by remember { mutableStateOf("ALL") }
+    var selectedDirectionFilter by remember { mutableStateOf("ALL") }
+    var exportStatusText by remember { mutableStateOf("") }
+
+    // Dynamic Filter Options
+    val listStrategies = remember(allTransactions) {
+        listOf("ALL") + allTransactions.map { it.strategy }.distinct().sorted()
+    }
+    val listCoins = remember(allTransactions) {
+        listOf("ALL") + allTransactions.map { it.symbol.uppercase() }.distinct().sorted()
+    }
+    val listTimeframes = listOf("ALL", "5m", "15m", "1h", "4h")
+    val listExchanges = listOf("ALL", "PAPER", "MEXC_DEMO", "MEXC_LIVE")
+    val listDirections = listOf("ALL", "LONG", "SHORT")
+
+    // Filtered trades
+    val filteredTrades = remember(allTransactions, selectedStrategyFilter, selectedCoinFilter, selectedTimeframeFilter, selectedExchangeFilter, selectedDirectionFilter) {
+        allTransactions.filter { tr ->
+            val matchStrat = selectedStrategyFilter == "ALL" || tr.strategy == selectedStrategyFilter
+            val matchCoin = selectedCoinFilter == "ALL" || tr.symbol.uppercase() == selectedCoinFilter
+            val matchTf = selectedTimeframeFilter == "ALL" || tr.timeframe == selectedTimeframeFilter
+            val matchEx = selectedExchangeFilter == "ALL" || tr.exchange == selectedExchangeFilter
+            val matchDir = selectedDirectionFilter == "ALL" || tr.signalType == selectedDirectionFilter
+            matchStrat && matchCoin && matchTf && matchEx && matchDir
+        }
+    }
+
+    // Quantitative metrics
+    val totalTrades = filteredTrades.size
+    val winTrades = filteredTrades.filter { it.pnl > 0.0 }
+    val lossTrades = filteredTrades.filter { it.pnl <= 0.0 }
+    val winRate = if (totalTrades > 0) (winTrades.size.toDouble() / totalTrades) * 100.0 else 0.0
+    val totalRealized = filteredTrades.sumOf { it.pnl }
+    
+    // Average RR ratio setup
+    val avgRR = if (filteredTrades.isNotEmpty()) filteredTrades.map { it.riskRewardRatio }.average() else 1.5
+    val safeRR = if (avgRR.isNaN()) 1.5 else avgRR
+
+    // Optimal Strategy
+    val strategyRankings = remember(filteredTrades) {
+        filteredTrades.groupBy { it.strategy }
+            .map { (strat, trades) ->
+                val w = trades.filter { it.pnl > 0.0 }.size
+                val rate = if (trades.isNotEmpty()) (w.toDouble() / trades.size) * 100.0 else 0.0
+                val p = trades.sumOf { it.pnl }
+                strat to Triple(trades.size, rate, p)
+            }.sortedByDescending { it.second.third } // sort by profitable
+    }
+    val bestStrategyName = strategyRankings.firstOrNull()?.first ?: "N/A"
+    val bestStrategyPnl = strategyRankings.firstOrNull()?.second?.third ?: 0.0
+
+    // Optimal Coin
+    val coinPerformance = remember(filteredTrades) {
+        filteredTrades.groupBy { it.symbol }
+            .map { (coin, trades) ->
+                coin.uppercase() to trades.sumOf { it.pnl }
+            }.sortedByDescending { it.second }
+    }
+    val bestCoinName = coinPerformance.firstOrNull()?.first ?: "N/A"
+    val bestCoinPnl = coinPerformance.firstOrNull()?.second ?: 0.0
+
+    // Drawdown Calculation
+    val maxDrawdown = remember(filteredTrades) {
+        var maxPeak = 0.0
+        var runningEquity = 0.0
+        var maxDD = 0.0
+        filteredTrades.sortedBy { it.exitTimestamp ?: it.timestamp }.forEach { tr ->
+            runningEquity += tr.pnl
+            if (runningEquity > maxPeak) maxPeak = runningEquity
+            val dd = maxPeak - runningEquity
+            if (dd > maxDD) maxDD = dd
+        }
+        maxDD
+    }
+
+    // Direction performance
+    val directionPnl = remember(filteredTrades) {
+        val groups = filteredTrades.groupBy { it.signalType }
+        val longP = groups["LONG"]?.sumOf { it.pnl } ?: 0.0
+        val shortP = groups["SHORT"]?.sumOf { it.pnl } ?: 0.0
+        longP to shortP
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag("trade_analytics_console"),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        // --- Tab Header ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberDark),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "TRADE ANALYTICS & STRATEGY OPTIMIZATION",
+                        fontFamily = FontFamily.Monospace,
+                        color = CyberGold,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Permanent cloud-aligned transactional intelligence database & adaptive strategy rankers.",
+                        fontSize = 10.sp,
+                        color = CyberTextDim
+                    )
+                }
+            }
+        }
+
+        // --- Interactive Filters Drawer ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("MULTI-AXIS METRIC FILTERS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    // Filter row: Strategy
+                    Text("STRATEGY FILTER", fontSize = 8.sp, color = CyberTextDim)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        items(listStrategies) { strat ->
+                            val isSel = selectedStrategyFilter == strat
+                            Button(
+                                onClick = { selectedStrategyFilter = strat },
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isSel) CyberAccentGreen else CyberSurface),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text(strat, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isSel) CyberDark else CyberTextWhite)
+                            }
+                        }
+                    }
+                    
+                    // Filter row: Coin
+                    Text("COIN / PAIR FILTER", fontSize = 8.sp, color = CyberTextDim)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    ) {
+                        items(listCoins) { coin ->
+                            val isSel = selectedCoinFilter == coin
+                            Button(
+                                onClick = { selectedCoinFilter = coin },
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isSel) CyberAccentGreen else CyberSurface),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text(coin, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isSel) CyberDark else CyberTextWhite)
+                            }
+                        }
+                    }
+
+                    // Bottom filters grid
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Timeframe Column
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("TIMEFRAME", fontSize = 8.sp, color = CyberTextDim)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(listTimeframes) { tf ->
+                                    val isSel = selectedTimeframeFilter == tf
+                                    Box(
+                                        modifier = Modifier
+                                            .background(if (isSel) CyberGold else CyberSurface, RoundedCornerShape(4.dp))
+                                            .clickable { selectedTimeframeFilter = tf }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(tf, fontSize = 8.sp, color = if (isSel) CyberDark else CyberTextWhite, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Exchange Column
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("EXCHANGE", fontSize = 8.sp, color = CyberTextDim)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(listExchanges) { ex ->
+                                    val isSel = selectedExchangeFilter == ex
+                                    Box(
+                                        modifier = Modifier
+                                            .background(if (isSel) CyberGold else CyberSurface, RoundedCornerShape(4.dp))
+                                            .clickable { selectedExchangeFilter = ex }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(ex.removePrefix("MEXC_"), fontSize = 8.sp, color = if (isSel) CyberDark else CyberTextWhite, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Direction filter row
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("DIRECTION: ", fontSize = 8.sp, color = CyberTextDim)
+                        listDirections.forEach { dir ->
+                            val isSel = selectedDirectionFilter == dir
+                            Box(
+                                modifier = Modifier
+                                    .padding(start = 6.dp)
+                                    .background(if (isSel) CyberAccentGreen else CyberSurface, RoundedCornerShape(4.dp))
+                                    .clickable { selectedDirectionFilter = dir }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(dir, fontSize = 8.sp, color = if (isSel) CyberDark else CyberTextWhite, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Performance metric summary overview ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("FILTERED GENERAL PERFORMANCE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("CUMULATIVE METRIC P&L", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(totalRealized)}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (totalRealized >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("WIN RATE", fontSize = 8.sp, color = CyberTextDim)
+                            Text("${String.format(java.util.Locale.US, "%.1f", winRate)}%", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (winRate >= 50.0) CyberAccentGreen else CyberGold, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = CyberDark),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("TOTAL COUNTER", fontSize = 7.sp, color = CyberTextDim)
+                                Text("$totalTrades Trades", fontSize = 11.sp, color = CyberTextWhite, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Text("Win/Loss: ${winTrades.size}/${lossTrades.size}", fontSize = 8.sp, color = CyberTextDim)
+                            }
+                        }
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = CyberDark),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("MAX DD (DRAWDOWN)", fontSize = 7.sp, color = CyberTextDim)
+                                Text("$${formatCurrency(maxDrawdown)}", fontSize = 11.sp, color = CyberAccentRed, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Text("Peak Retracement", fontSize = 8.sp, color = CyberTextDim)
+                            }
+                        }
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(containerColor = CyberDark),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text("BEST SETUP RR", fontSize = 7.sp, color = CyberTextDim)
+                                Text("${String.format(java.util.Locale.US, "%.2f", safeRR)}:1", fontSize = 11.sp, color = CyberAccentGreen, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                Text("Expected Ratio", fontSize = 8.sp, color = CyberTextDim)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Reactive Equity Curve Line Graph ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("CUMULATIVE PERFORMANCE EQUITY CURVE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Text("Visual representation of capital appreciation over sequence index.", fontSize = 9.sp, color = CyberTextDim)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    CyberEquityCurveCanvas(filteredTrades)
+                    
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("◀ Sequence index progress (Earliest to Latest) ▶", fontSize = 8.sp, color = CyberTextDim, modifier = Modifier.align(Alignment.CenterHorizontally), fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
+
+        // --- Deep analysis segment tables ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("STRATEGY PERFORMANCE RANKINGS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    if (strategyRankings.isEmpty()) {
+                        Text("No strategy data recorded.", color = CyberTextDim, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            strategyRankings.forEachIndexed { i, (strat, stats) ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(8.dp)).padding(10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("${i+1}. $strat", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
+                                        Text("Total: ${stats.first} | WinRate: ${String.format(java.util.Locale.US, "%.1f", stats.second)}%", fontSize = 9.sp, color = CyberTextDim)
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("$${formatCurrency(stats.third)}", color = if (stats.third >= 0) CyberAccentGreen else CyberAccentRed, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // More insights panel
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("TACTICAL MATRIX INSIGHTS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("MOST PROFITABLE COIN", fontSize = 8.sp, color = CyberTextDim)
+                            Text(bestCoinName, fontSize = 12.sp, color = CyberTextWhite, fontWeight = FontWeight.Bold)
+                            Text("PnL: +$${formatCurrency(bestCoinPnl)}", fontSize = 8.sp, color = CyberAccentGreen, fontFamily = FontFamily.Monospace)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("LONG VS SHORT PERFORMANCE", fontSize = 8.sp, color = CyberTextDim)
+                            Text("Longs: $${formatCurrency(directionPnl.first)}", fontSize = 10.sp, color = if (directionPnl.first >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace)
+                            Text("Shorts: $${formatCurrency(directionPnl.second)}", fontSize = 10.sp, color = if (directionPnl.second >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- AI strategy crunch segment ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("ai_insight_optimization_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberGold.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("AI BRAIN ADVISORY CRUNCHER", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                            Text("Let Gemini analyze local trade datasets to isolate edge and leverage suggestions.", fontSize = 9.sp, color = CyberTextDim)
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(14.dp))
+                    
+                    if (aiInsights.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(CyberDark, RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = aiInsights,
+                                color = CyberTextWhite,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                    
+                    Button(
+                        onClick = { viewModel.generateAiOptimizationInsights() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberGold),
+                        enabled = !isGeneratingAi,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (isGeneratingAi) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = CyberDark, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("COMPILING CORES...", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        } else {
+                            Text("EXECUTE DEEP AI STRATEGY CRUNCH", color = CyberDark, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Export reports tools card ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("DATA EXPORT ENGINE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Text("Export trade historical logs to standardized CSV files to load into Excel.", fontSize = 9.sp, color = CyberTextDim)
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    if (exportStatusText.isNotEmpty()) {
+                        Text(exportStatusText, fontSize = 9.sp, color = CyberAccentGreen, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(bottom = 10.dp))
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = {
+                                if (filteredTrades.isEmpty()) {
+                                    exportStatusText = "❌ No trades to export."
+                                    return@Button
+                                }
+                                try {
+                                    val sb = java.lang.StringBuilder()
+                                    sb.append("ID,Strategy,Coin,Direction,EntryPrice,ExitPrice,SL,TP,PnL,Ratio,Timeframe,Leverage,Exchange,Timestamp\n")
+                                    filteredTrades.forEach { tr ->
+                                        sb.append("${tr.id},\"${tr.strategy}\",${tr.symbol.uppercase()},${tr.signalType},${tr.entryPrice},${tr.exitPrice ?: tr.currentPrice},${tr.stopLoss},${tr.takeProfit},${tr.pnl},${tr.riskRewardRatio},${tr.timeframe},${tr.leverage},${tr.exchange},${tr.timestamp}\n")
+                                    }
+                                    
+                                    val file = java.io.File(context.getExternalFilesDir(null), "TradeHistoryAnalyticsReport.csv")
+                                    file.writeText(sb.toString())
+                                    exportStatusText = "🟢 Exported spreadsheet to: ${file.absolutePath} successfully!"
+                                } catch (e: Exception) {
+                                    exportStatusText = "❌ Export failed: ${e.message}"
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("EXPORT CSV (EXCEL)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen, fontFamily = FontFamily.Monospace)
+                        }
+                        
+                        Button(
+                            onClick = {
+                                if (filteredTrades.isEmpty()) {
+                                    exportStatusText = "❌ No trades to copy."
+                                    return@Button
+                                }
+                                val sb = java.lang.StringBuilder()
+                                sb.append("=== TRADING BOT METRICS REPORT ===\n")
+                                filteredTrades.forEach { tr ->
+                                    val statusSym = if (tr.pnl > 0.0) "🟢" else "🔴"
+                                    sb.append("$statusSym [${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType}) | EP: ${tr.entryPrice} SL: ${tr.stopLoss} TP: ${tr.takeProfit} | Gain/Loss: $${String.format(java.util.Locale.US, "%.2f", tr.pnl)} | Strategy: ${tr.strategy}\n")
+                                }
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(sb.toString()))
+                                exportStatusText = "🟢 Successfully copied telemetry data report to clipboard!"
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("COPY DATA REPORT", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CyberEquityCurveCanvas(trades: List<PaperTrade>) {
+    var accumulated = 0.0
+    val dataPoints = mutableListOf<Float>()
+    dataPoints.add(0f)
+    trades.sortedBy { it.exitTimestamp ?: it.timestamp }.forEach { tr ->
+        accumulated += tr.pnl
+        dataPoints.add(accumulated.toFloat())
+    }
+    
+    val maxP = dataPoints.maxOrNull()?.coerceAtLeast(10f) ?: 10f
+    val minP = dataPoints.minOrNull()?.coerceAtMost(-10f) ?: -10f
+    val range = (maxP - minP).coerceAtLeast(1f)
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(160.dp).background(CyberDark, RoundedCornerShape(12.dp)).padding(8.dp)) {
+        val width = size.width
+        val height = size.height
+        
+        // Draw Grid Lines
+        val gridLines = 4
+        for (i in 1..gridLines) {
+            val y = (height / (gridLines + 1)) * i
+            drawLine(
+                color = Color(0xFF1E293B),
+                start = Offset(0f, y),
+                end = Offset(width, y),
+                strokeWidth = 1f
+            )
+        }
+        
+        // Plot values
+        if (dataPoints.size > 1) {
+            val stepX = width / (dataPoints.size - 1)
+            val path = androidx.compose.ui.graphics.Path()
+            val fillPath = androidx.compose.ui.graphics.Path()
+            
+            val firstY = height - ((dataPoints[0] - minP) / range * height)
+            path.moveTo(0f, firstY)
+            fillPath.moveTo(0f, height)
+            fillPath.lineTo(0f, firstY)
+            
+            for (idx in 1 until dataPoints.size) {
+                val valX = idx * stepX
+                val valY = height - ((dataPoints[idx] - minP) / range * height)
+                path.lineTo(valX, valY)
+                fillPath.lineTo(valX, valY)
+            }
+            
+            fillPath.lineTo(width, height)
+            fillPath.close()
+            
+            // Draw Gradient fill
+            drawPath(
+                path = fillPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(CyberAccentGreen.copy(alpha = 0.25f), Color.Transparent)
+                )
+            )
+            
+            // Draw stroke line
+            drawPath(
+                path = path,
+                color = CyberAccentGreen,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            )
+            
+            // Draw dots at peak points
+            for (idx in dataPoints.indices) {
+                val valX = idx * stepX
+                val valY = height - ((dataPoints[idx] - minP) / range * height)
+                drawCircle(
+                    color = if (dataPoints[idx] >= 0) CyberAccentGreen else CyberAccentRed,
+                    radius = 5f,
+                    center = Offset(valX, valY)
+                )
+            }
+        } else {
+            // Draw placeholder line
+            drawLine(
+                color = CyberAccentGreen.copy(alpha = 0.5f),
+                start = Offset(0f, height/2),
+                end = Offset(width, height/2),
+                strokeWidth = 2f
+            )
         }
     }
 }

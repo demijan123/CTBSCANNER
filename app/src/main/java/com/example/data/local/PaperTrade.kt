@@ -28,5 +28,13 @@ data class PaperTrade(
     val isMexcTrade: Boolean = false,
     val mexcOrderId: String? = null,
     val isMexcDemoTrade: Boolean = false,
-    val whyTradeReason: String = ""
+    val whyTradeReason: String = "",
+    val timeframe: String = "15m",
+    val leverage: Double = 1.0,
+    val riskRewardRatio: Double = 1.5,
+    val rsi: Double = 50.0,
+    val volatility: Double = 0.05,
+    val volume: Double = 12500000.0,
+    val trend: String = "NEUTRAL",
+    val exchange: String = "PAPER"
 )

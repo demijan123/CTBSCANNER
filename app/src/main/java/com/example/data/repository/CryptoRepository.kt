@@ -340,4 +340,18 @@ class CryptoRepository(
     suspend fun clearAllPaperTrades() {
         paperTradeDao.clearAllTrades()
     }
+
+    suspend fun queryGeminiRaw(request: com.example.data.network.GeminiRequest): String? = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isBlank() || apiKey == "YOUR_GEMINI_API_KEY_HERE" || apiKey.contains("placeholder", ignoreCase = true)) {
+            return@withContext null
+        }
+        try {
+            val response = geminiService.generateContent(apiKey, request)
+            return@withContext response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+        } catch (e: Exception) {
+            Log.e("CryptoRepository", "Error querying Gemini general endpoint: ${e.message}", e)
+            return@withContext null
+        }
+    }
 }
