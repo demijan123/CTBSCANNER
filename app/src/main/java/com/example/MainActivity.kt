@@ -3,6 +3,8 @@ package com.example
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import java.util.Locale
+import androidx.compose.material.icons.filled.Close
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -29,6 +31,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +46,10 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -239,7 +247,7 @@ fun MainDesktopDashboard(
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     val latestBacktestResults = remember { mutableStateMapOf<String, SimulationResult>() }
-    val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "PAPER TRADING", "AUTO BOT")
+    val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "AUTO BOT", "PAPER TRADING", "MEXC CONFIG", "MEXC DEMO TRADES", "MEXC LIVE TRADES")
     var selectedCoinForDetails by remember { mutableStateOf<Coin?>(null) }
 
     val scannedCoins by viewModel.scannedCoins.collectAsState()
@@ -281,10 +289,12 @@ fun MainDesktopDashboard(
                 contentColor = CyberTextWhite,
                 edgePadding = 12.dp,
                 indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                        color = CyberAccentGreen
-                    )
+                    if (selectedTab in tabPositions.indices) {
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                            color = CyberAccentGreen
+                        )
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -298,7 +308,10 @@ fun MainDesktopDashboard(
                         2 -> Icons.Default.Favorite
                         3 -> Icons.Default.Info
                         4 -> Icons.Default.PlayArrow
-                        5 -> Icons.Default.Refresh
+                        5 -> Icons.Default.List
+                        6 -> Icons.Default.Settings
+                        7 -> Icons.Default.Star
+                        8 -> Icons.Default.ShoppingCart
                         else -> Icons.Default.Info
                     }
                     Tab(
@@ -325,6 +338,25 @@ fun MainDesktopDashboard(
                         }
                     )
                 }
+            }
+
+            // --- Horizontal Scroll Navigation Hint ---
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(CyberSurface.copy(alpha = 0.7f))
+                    .padding(vertical = 5.dp, horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "◀  SLIDE TABS LEFT/RIGHT FOR MORE CHANNELS (AUTO BOT, MEXC CONFIG, TRADES)  ▶",
+                    color = CyberGold,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 1.sp
+                )
             }
 
             // --- Active Tab Screen Router ---
@@ -360,8 +392,11 @@ fun MainDesktopDashboard(
                         emptyText = "Your Bookmarked signals live here. Tap the Bookmark icon on any confirmed signal inside active trades to preserve it."
                     )
                     3 -> StrategyBlueprintsTab(viewModel = viewModel, latestBacktestResults = latestBacktestResults)
-                    4 -> PaperTradingPortfolioTab(viewModel = viewModel)
-                    5 -> AutoBotTradingConsoleTab(viewModel = viewModel)
+                    4 -> AutoBotTradingConsoleTab(viewModel = viewModel)
+                    5 -> PaperTradingPortfolioTab(viewModel = viewModel)
+                    6 -> MexcTradingConsoleTab(viewModel = viewModel)
+                    7 -> MexcTradesTab(viewModel = viewModel, isDemo = true)
+                    8 -> MexcTradesTab(viewModel = viewModel, isDemo = false)
                 }
             }
 
@@ -3822,6 +3857,14 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
         "MACD Divergence & Momentum Exhaustion"
     )
 
+    var maxTradesInput by remember { mutableStateOf(botMaxTrades.toString()) }
+    var tradeSizeInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.0f", botTradeSize)) }
+
+    LaunchedEffect(botMaxTrades, botTradeSize) {
+        maxTradesInput = botMaxTrades.toString()
+        tradeSizeInput = String.format(java.util.Locale.US, "%.0f", botTradeSize)
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -3867,6 +3910,504 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                                 text = if (botEnabled) "BOT ON: Active Market Sweep Route" else "BOT OFF: Engine Standby",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Black,
+                                color = CyberTextWhite
+                            )
+                        }
+
+                        Switch(
+                            checked = botEnabled,
+                            onCheckedChange = { viewModel.setBotEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF22C55E),
+                                uncheckedThumbColor = CyberTextDim,
+                                uncheckedTrackColor = CyberSurface
+                            ),
+                            modifier = Modifier.testTag("bot_toggle_switch")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "MOCK CASH BALANCE",
+                                fontSize = 8.sp,
+                                color = CyberTextDim,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "$${formatCurrency(cashBalance)}",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = CyberTextWhite
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text(
+                                "ACTIVE BOT ENGAGEMENTS",
+                                fontSize = 8.sp,
+                                color = CyberTextDim,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "${openTrades.size} / $botMaxTrades Positions",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (openTrades.size >= botMaxTrades) CyberAccentRed else CyberAccentGreen
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = maxTradesInput,
+                            onValueChange = {
+                                maxTradesInput = it
+                                it.toIntOrNull()?.let { num ->
+                                    viewModel.setBotMaxDailyTrades(num.coerceIn(1, 100))
+                                }
+                            },
+                            label = { Text("Max Trades (1-100)", color = CyberTextDim, fontSize = 9.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = tradeSizeInput,
+                            onValueChange = {
+                                tradeSizeInput = it
+                                it.toDoubleOrNull()?.let { size ->
+                                    viewModel.setBotTradeSize(size)
+                                }
+                            },
+                            label = { Text("Cost per Trade ($)", color = CyberTextDim, fontSize = 9.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+                }
+            }
+        }
+
+        // 2. TARGET COIN FILTER CARD
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("bot_target_coin_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "TARGET COIN CRUSADER RANGE",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberGold,
+                        letterSpacing = 1.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Mode switch (ALL / CUSTOM)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .padding(4.dp)
+                    ) {
+                        listOf("ALL", "CUSTOM").forEach { mode ->
+                            val isSelected = botTargetCoinMode == mode
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) CyberSlate else Color.Transparent)
+                                    .clickable { viewModel.setBotTargetCoinMode(mode) }
+                                    .padding(vertical = 10.dp, horizontal = 12.dp)
+                                    .testTag("target_mode_$mode"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.setBotTargetCoinMode(mode) },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = CyberAccentGreen,
+                                            unselectedColor = CyberTextDim
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (mode == "ALL") "ALL COINS" else "SPECIFIC COINS",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) CyberAccentGreen else CyberTextDim
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (botTargetCoinMode == "CUSTOM") {
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "SELECT TARGET COINS FOR STRATEGY EXECUTION",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        if (scannedCoins.isEmpty()) {
+                            Text(
+                                text = "No scanned assets available. Execute market scan or load defaults.",
+                                fontSize = 11.sp,
+                                color = CyberTextDim
+                            )
+                        } else {
+                            scannedCoins.chunked(2).forEach { pair ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    pair.forEach { coin ->
+                                        val isCoinSelected = botSelectedCoinIds.contains(coin.id)
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(vertical = 4.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (isCoinSelected) CyberSlate.copy(alpha = 0.4f) else CyberDark)
+                                                .clickable { viewModel.toggleBotSelectedCoin(coin.id) }
+                                                .border(
+                                                    1.dp,
+                                                    if (isCoinSelected) CyberAccentGreen.copy(alpha = 0.6f) else Color.Transparent,
+                                                    RoundedCornerShape(12.dp)
+                                                )
+                                                .padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = isCoinSelected,
+                                                onCheckedChange = { viewModel.toggleBotSelectedCoin(coin.id) },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = CyberAccentGreen,
+                                                    uncheckedColor = CyberTextDim
+                                                )
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Column {
+                                                Text(
+                                                    text = coin.symbol.uppercase(),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isCoinSelected) CyberAccentGreen else CyberTextWhite
+                                                )
+                                                Text(
+                                                    text = coin.name,
+                                                    fontSize = 9.sp,
+                                                    color = CyberTextDim,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (pair.size < 2) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${botSelectedCoinIds.size} coin(s) selected",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberGold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+
+                                if (botSelectedCoinIds.isNotEmpty()) {
+                                    Text(
+                                        text = "CLEAR ALL",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CyberAccentRed,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier
+                                            .clickable { viewModel.clearBotSelectedCoins() }
+                                            .padding(4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. TARGET BLUEPRINTS SELECTOR CARD
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("bot_blueprints_selector_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "BLUEPRINT TARGETING PROTOCOL",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberGold,
+                        letterSpacing = 1.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .padding(4.dp)
+                    ) {
+                        listOf("AUTO", "MANUAL").forEach { mode ->
+                            val isSelected = botSelectionMode == mode
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) CyberSlate else Color.Transparent)
+                                    .clickable { viewModel.setBotSelectionMode(mode) }
+                                    .padding(vertical = 10.dp, horizontal = 12.dp)
+                                    .testTag("mode_toggle_$mode"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.setBotSelectionMode(mode) },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = CyberAccentGreen,
+                                            unselectedColor = CyberTextDim
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (mode == "AUTO") "AUTO (All Strategies)" else "MANUAL (Whitelist)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) CyberAccentGreen else CyberTextDim
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "TARGET SELECTION RANGE",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextDim,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        blueprints.forEach { blueprintTitle ->
+                            val isWhitelisted = botSelectedBlueprints.contains(blueprintTitle)
+                            val isEnabled = botSelectionMode == "MANUAL"
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isWhitelisted && isEnabled) CyberSlate.copy(alpha = 0.4f) else CyberDark)
+                                    .clickable(enabled = isEnabled) { viewModel.toggleBotBlueprint(blueprintTitle) }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .background(
+                                                if (blueprintTitle.contains("Sweep") || blueprintTitle.contains("Divergence")) CyberAccentRed else CyberAccentGreen,
+                                                CircleShape
+                                            )
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = blueprintTitle,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isEnabled) CyberTextWhite else CyberTextDim
+                                    )
+                                }
+
+                                Checkbox(
+                                    checked = if (isEnabled) isWhitelisted else true,
+                                    onCheckedChange = { viewModel.toggleBotBlueprint(blueprintTitle) },
+                                    enabled = isEnabled,
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = CyberAccentGreen,
+                                        uncheckedColor = CyberTextDim
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. ALPHABOT LIVE CONSOLE TERMINAL
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("bot_terminal_card"),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(Color(0xFF22C55E), CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "ALPHABOT TELEMETRY FEED",
+                                fontSize = 10.sp,
+                                color = Color(0xFF94A3B8),
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.clearLogs() },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Clear Terminal logs",
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .background(Color(0xFF020617), RoundedCornerShape(12.dp))
+                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        if (scanLogs.isEmpty()) {
+                            Text(
+                                "[SYSTEM STANDBY] Feed awaiting routing instructions...",
+                                color = Color(0xFF64748B),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp
+                            )
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                reverseLayout = true
+                            ) {
+                                items(scanLogs.reversed()) { log ->
+                                    Text(
+                                        text = log,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = if (log.contains("🤖") || log.contains("🟢") || log.contains("🚀")) {
+                                            Color(0xFF4ADE80)
+                                        } else if (log.contains("🛑") || log.contains("❌") || log.contains("🔴")) {
+                                            Color(0xFFF87171)
+                                        } else {
+                                            Color(0xFF38BDF8)
+                                        },
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/*
+fun OldAutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
+    // Truncated commented-out duplicate code to prevent IDE search collisions and compilation errors
+    // Since this is 100% commented-out and disabled code, we safely simplify it.
+*/
+/*
+    Text(
+        text = if (botEnabled) "BOT ON: Active Market Sweep Route" else "BOT OFF: Engine Standby",
+        fontSize = 18.sp,
+        fontWeight = FontWeight.Black,
                                 color = CyberTextWhite
                             )
                         }
@@ -5125,6 +5666,807 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+*/
+
+@Composable
+fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
+    val mexcEnabled by viewModel.mexcEnabled.collectAsState()
+    val mexcIsDemo by viewModel.mexcIsDemo.collectAsState()
+    val mexcApiKey by viewModel.mexcApiKey.collectAsState()
+    val mexcSecretKey by viewModel.mexcSecretKey.collectAsState()
+    val mexcConnectionStatus by viewModel.mexcConnectionStatus.collectAsState()
+    val mexcBalance by viewModel.mexcBalance.collectAsState()
+    val mexcDemoBalance by viewModel.mexcDemoBalance.collectAsState()
+    
+    val mexcBotEnabled by viewModel.mexcBotEnabled.collectAsState()
+    val mexcBotMaxTrades by viewModel.mexcBotMaxTrades.collectAsState()
+    val mexcBotTradeSize by viewModel.mexcBotTradeSize.collectAsState()
+    val mexcBotSelectionMode by viewModel.mexcBotSelectionMode.collectAsState()
+    val mexcBotSelectedBlueprints by viewModel.mexcBotSelectedBlueprints.collectAsState()
+    val mexcBotScanModeByViewModel by viewModel.mexcBotScanMode.collectAsState()
+    val mexcBotScanMode = mexcBotScanModeByViewModel // resolve any potential naming clash
+
+    val mexcBotTargetCoinMode by viewModel.mexcBotTargetCoinMode.collectAsState()
+    val mexcBotSelectedCoinIds by viewModel.mexcBotSelectedCoinIds.collectAsState()
+    val scannedCoins by viewModel.scannedCoins.collectAsState()
+    
+    val openTradesAll by viewModel.openTrades.collectAsState()
+    val closedTradesAll by viewModel.closedTrades.collectAsState()
+    val mexcOpenTrades = openTradesAll.filter { it.isMexcTrade }
+    val mexcClosedTrades = closedTradesAll.filter { it.isMexcTrade }
+    val scanLogs by viewModel.scanLogs.collectAsState()
+
+    var apiKeyInput by remember { mutableStateOf(mexcApiKey) }
+    var secretKeyInput by remember { mutableStateOf(mexcSecretKey) }
+    
+    LaunchedEffect(mexcApiKey, mexcSecretKey) {
+        apiKeyInput = mexcApiKey
+        secretKeyInput = mexcSecretKey
+    }
+
+    var parallelTradesInput by remember { mutableStateOf(mexcBotMaxTrades.toString()) }
+    var demoBalanceInput by remember { mutableStateOf(String.format(Locale.US, "%.0f", mexcDemoBalance)) }
+    var tradeCostInput by remember { mutableStateOf(String.format(Locale.US, "%.0f", mexcBotTradeSize)) }
+    
+    LaunchedEffect(mexcBotMaxTrades, mexcDemoBalance, mexcBotTradeSize) {
+        parallelTradesInput = mexcBotMaxTrades.toString()
+        demoBalanceInput = String.format(Locale.US, "%.0f", mexcDemoBalance)
+        tradeCostInput = String.format(Locale.US, "%.0f", mexcBotTradeSize)
+    }
+
+    var isGatewayExpanded by remember { mutableStateOf(mexcApiKey.isBlank() || !mexcConnectionStatus.contains("Connected")) }
+    
+    LaunchedEffect(mexcConnectionStatus) {
+        if (mexcConnectionStatus.contains("Connected")) {
+            isGatewayExpanded = false
+        }
+    }
+
+    val blueprints = listOf(
+        "EMA Continuation Cross (V3)", "Volumetric Liquidity Sweep", "Mean Reversion & Oversold Bounce",
+        "Wyckoff Spring & Phase C Accumulation", "High-Volume Momentum Breakout", "Institutional Order Block Grab",
+        "MACD Divergence & Momentum Exhaustion"
+    )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag("mexc_console_list"),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        // --- 1. MEXC GATEWAY INTEGRATION ---
+        item {
+            val isConnected = mexcConnectionStatus.contains("Connected")
+            if (isConnected && !isGatewayExpanded) {
+                // MINIMIZED STATE
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("mexc_api_gateway_card_minimized"),
+                    colors = CardDefaults.cardColors(containerColor = CyberCard),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .background(if (mexcEnabled) CyberAccentGreen else CyberGold, androidx.compose.foundation.shape.CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("MEXC PREMIUM GATEWAY ROUTER", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                Text(
+                                    text = if (mexcEnabled) "GATEWAY: ACTIVE (CONNECTED)" else "GATEWAY: STANDBY (CONNECTED)", 
+                                    fontSize = 12.sp, 
+                                    fontWeight = FontWeight.Bold, 
+                                    color = CyberTextWhite
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Balance: $${formatCurrency(mexcBalance)} USDT",
+                                    fontSize = 11.sp,
+                                    color = CyberAccentGreen,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = { isGatewayExpanded = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("MANAGE API", color = CyberAccentGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
+                            Switch(
+                                checked = mexcEnabled,
+                                onCheckedChange = { viewModel.setMexcEnabled(it) },
+                                colors = SwitchDefaults.colors(checkedTrackColor = CyberAccentGreen)
+                            )
+                        }
+                    }
+                }
+            } else {
+                // EXPANDED STATE
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("mexc_api_gateway_card"),
+                    colors = CardDefaults.cardColors(containerColor = CyberCard),
+                    shape = RoundedCornerShape(24.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("MEXC PREMIUM GATEWAY ROUTING", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                Text(if (mexcEnabled) "GATEWAY: ACTIVE" else "GATEWAY: STANDBY", fontSize = 18.sp, fontWeight = FontWeight.Black, color = CyberTextWhite)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (isConnected) {
+                                    Button(
+                                        onClick = { isGatewayExpanded = false },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Text("MINIMIZE", color = CyberTextWhite, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                                Switch(
+                                    checked = mexcEnabled,
+                                    onCheckedChange = { viewModel.setMexcEnabled(it) },
+                                    colors = SwitchDefaults.colors(checkedTrackColor = CyberAccentGreen)
+                                )
+                            }
+                        }
+                        
+                        if (isConnected) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(CyberAccentGreen, androidx.compose.foundation.shape.CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("CONNECTED TO MEXC API", fontSize = 8.sp, color = CyberTextDim, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    Text("BALANCE: $${formatCurrency(mexcBalance)} USDT", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = apiKeyInput, onValueChange = { apiKeyInput = it },
+                            label = { Text("MEXC Access API Key", color = CyberTextDim, fontSize = 10.sp, fontFamily = FontFamily.Monospace) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.fillMaxWidth(), singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = secretKeyInput, onValueChange = { secretKeyInput = it },
+                            label = { Text("MEXC Signature Secret Key", color = CyberTextDim, fontSize = 10.sp, fontFamily = FontFamily.Monospace) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.fillMaxWidth(), singleLine = true
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(mexcConnectionStatus, fontSize = 11.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                            Button(
+                                onClick = { viewModel.saveMexcCredentials(apiKeyInput, secretKeyInput) },
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface)
+                            ) {
+                                Text("SAVE & INTEGRATE API", color = CyberAccentGreen, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 2. VECTOR ACCOUNT MODE CALIBRATION ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("ACCOUNT RUNTIME VECTOR", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(4.dp)) {
+                        Button(
+                            onClick = { viewModel.setMexcIsDemo(true) }, modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (mexcIsDemo) CyberSurface else Color.Transparent)
+                        ) {
+                            Text("MOCK DEMO SPOT", fontSize = 9.sp, color = if (mexcIsDemo) CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace)
+                        }
+                        Button(
+                            onClick = { viewModel.setMexcIsDemo(false) }, modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (!mexcIsDemo) CyberSurface else Color.Transparent)
+                        ) {
+                            Text("MEXC LIVE SPOT", fontSize = 9.sp, color = if (!mexcIsDemo) CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    if (mexcIsDemo) {
+                        Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column {
+                                Text("SIMULATED ACCOUNT BALANCE", fontSize = 8.sp, color = CyberTextDim)
+                                Text("$${formatCurrency(mexcDemoBalance)} USDT", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen)
+                            }
+                            Text("DEMO ENVIRONMENT", fontSize = 9.sp, color = CyberGold, modifier = Modifier.align(Alignment.CenterVertically))
+                        }
+                    } else {
+                        Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column {
+                                Text("REAL LIVE ACCOUNT BALANCE", fontSize = 8.sp, color = CyberTextDim)
+                                Text("$${formatCurrency(mexcBalance)} USDT", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen)
+                            }
+                            Text("SECURE SPOT VECTOR", fontSize = 9.sp, color = CyberGold, modifier = Modifier.align(Alignment.CenterVertically))
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("BOT PROTOCOL EXECUTION CALIBRATION", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = parallelTradesInput, onValueChange = { 
+                                parallelTradesInput = it
+                                it.toIntOrNull()?.let { v -> viewModel.setMexcBotMaxTrades(v.coerceIn(1, 50)) }
+                            },
+                            label = { Text("Max Trades (1-50)", color = CyberTextDim, fontSize = 9.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp),
+                            modifier = Modifier.weight(1f), singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = tradeCostInput, onValueChange = { 
+                                tradeCostInput = it
+                                it.toDoubleOrNull()?.let { v -> viewModel.setMexcBotTradeSize(v) }
+                            },
+                            label = { Text("Cost per Trade ($)", color = CyberTextDim, fontSize = 9.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp),
+                            modifier = Modifier.weight(1f), singleLine = true
+                        )
+                    }
+                    
+                    if (mexcIsDemo) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(
+                                value = demoBalanceInput, onValueChange = { 
+                                    demoBalanceInput = it
+                                    it.toDoubleOrNull()?.let { v -> viewModel.setMexcDemoBalance(v) }
+                                },
+                                label = { Text("Set Custom Demo Balance ($)", color = CyberTextDim, fontSize = 9.sp) },
+                                textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp),
+                                modifier = Modifier.weight(1.3f), singleLine = true
+                            )
+                            Button(
+                                onClick = { viewModel.resetMexcDemoBalance() }, 
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberDark),
+                                modifier = Modifier.weight(1f).height(48.dp)
+                            ) {
+                                Text("RESET DEMO LEDGER", color = CyberAccentRed, fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 3. INDEPENDENT MEXC AUTO QUANT BOT ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("INDEPENDENT MEXC CORE QUANT BOT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                            Text(if (mexcBotEnabled) "BOT STATUS: RUNNING" else "BOT STATUS: HOLD", fontSize = 16.sp, fontWeight = FontWeight.Black, color = CyberTextWhite)
+                        }
+                        Switch(
+                            checked = mexcBotEnabled, onCheckedChange = { viewModel.setMexcBotEnabled(it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = CyberAccentGreen)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("BOT RADAR SCAN TARGETS", fontSize = 9.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(4.dp)) {
+                        Button(
+                            onClick = { viewModel.setMexcBotScanMode("COINGECKO") }, modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (mexcBotScanMode == "COINGECKO") CyberSurface else Color.Transparent)
+                        ) {
+                            Text("COINGECKO MATCH", fontSize = 9.sp, color = if (mexcBotScanMode == "COINGECKO") CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace)
+                        }
+                        Button(
+                            onClick = { viewModel.setMexcBotScanMode("MEXC_DIRECT") }, modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (mexcBotScanMode == "MEXC_DIRECT") CyberSurface else Color.Transparent)
+                        ) {
+                            Text("MEXC DIRECT SCAN", fontSize = 9.sp, color = if (mexcBotScanMode == "MEXC_DIRECT") CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Text("STRATEGY BLUEPRINT TARGET PROTOCOL", fontSize = 9.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(4.dp)) {
+                        Button(
+                            onClick = { viewModel.setMexcBotSelectionMode("AUTO") }, modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (mexcBotSelectionMode == "AUTO") CyberSurface else Color.Transparent)
+                        ) {
+                            Text("RUN ALL BLUEPRINTS", fontSize = 9.sp, color = if (mexcBotSelectionMode == "AUTO") CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace)
+                        }
+                        Button(
+                            onClick = { viewModel.setMexcBotSelectionMode("CUSTOM") }, modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (mexcBotSelectionMode == "CUSTOM") CyberSurface else Color.Transparent)
+                        ) {
+                            Text("SELECT CUSTOM TARGETS", fontSize = 9.sp, color = if (mexcBotSelectionMode == "CUSTOM") CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                    
+                    if (mexcBotSelectionMode == "AUTO") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = CyberAccentGreen,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "🤖 ALL active Strategy Blueprints targets will trigger automated trade vectors independently on MEXC Spot.",
+                                fontSize = 10.sp,
+                                color = CyberAccentGreen,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    
+                    if (mexcBotSelectionMode == "CUSTOM") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            blueprints.forEach { bp ->
+                                val isSelected = mexcBotSelectedBlueprints.contains(bp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().clickable { viewModel.toggleMexcBotBlueprint(bp) }.padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSelected) Icons.Default.Check else Icons.Default.Close,
+                                        contentDescription = null, tint = if (isSelected) CyberAccentGreen else CyberTextDim,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(bp, fontSize = 10.sp, color = if (isSelected) CyberTextWhite else CyberTextDim, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("BOT ASSET SCOPE PROTOCOL", fontSize = 9.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .padding(4.dp)
+                    ) {
+                        listOf("ALL", "CUSTOM").forEach { mode ->
+                            val isSelected = mexcBotTargetCoinMode == mode
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) CyberSurface else Color.Transparent)
+                                    .clickable { viewModel.setMexcBotTargetCoinMode(mode) }
+                                    .padding(vertical = 8.dp, horizontal = 12.dp)
+                                    .testTag("mexc_coin_mode_toggle_$mode"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.setMexcBotTargetCoinMode(mode) },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = CyberAccentGreen,
+                                            unselectedColor = CyberTextDim
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (mode == "ALL") "ALL COINS" else "SPECIFIC COINS",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) CyberAccentGreen else CyberTextDim,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (mexcBotTargetCoinMode == "CUSTOM") {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "SELECT MEXC TARGET ASSETS",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (scannedCoins.isEmpty()) {
+                            Text(
+                                text = "No active scanned assets available to select. Run market scan first.",
+                                fontSize = 10.sp,
+                                color = CyberTextDim,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        } else {
+                            scannedCoins.chunked(2).forEach { pair ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    pair.forEach { coin ->
+                                        val isCoinSelected = mexcBotSelectedCoinIds.contains(coin.id)
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .padding(vertical = 4.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (isCoinSelected) CyberSlate.copy(alpha = 0.4f) else CyberDark)
+                                                .clickable { viewModel.toggleMexcBotSelectedCoin(coin.id) }
+                                                .border(
+                                                    1.dp,
+                                                    if (isCoinSelected) CyberAccentGreen.copy(alpha = 0.6f) else Color.Transparent,
+                                                    RoundedCornerShape(12.dp)
+                                                )
+                                                .padding(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = isCoinSelected,
+                                                onCheckedChange = { viewModel.toggleMexcBotSelectedCoin(coin.id) },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = CyberAccentGreen,
+                                                    uncheckedColor = CyberTextDim
+                                                )
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Column {
+                                                Text(
+                                                    text = coin.symbol.uppercase(),
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isCoinSelected) CyberAccentGreen else CyberTextWhite
+                                                )
+                                                Text(
+                                                    text = coin.name,
+                                                    fontSize = 8.sp,
+                                                    color = CyberTextDim,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (pair.size < 2) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${mexcBotSelectedCoinIds.size} coin(s) selected",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberGold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                if (mexcBotSelectedCoinIds.isNotEmpty()) {
+                                    Text(
+                                        text = "CLEAR ALL",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CyberAccentRed,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.clickable { viewModel.clearMexcBotSelectedCoins() }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- 4. TERMINAL STREAM ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("MEXC SYSTEM REALTIME TERMINAL FEED", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(modifier = Modifier.fillMaxWidth().height(140.dp).background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp)) {
+                        val filteredLogs = scanLogs.filter { it.contains("MEXC") || it.contains("P&L Balancer") || it.contains("Crusader") }
+                        if (filteredLogs.isEmpty()) {
+                            Text("[SYSTEM STREAM] Awaiting MEXC telemetry triggers...", color = Color(0xFF64748B), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                reverseLayout = true
+                            ) {
+                                items(filteredLogs.reversed()) { log ->
+                                    Text(text = log, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = if (log.contains("🤖") || log.contains("🟢") || log.contains("🚀") || log.contains("Connected")) CyberAccentGreen else if (log.contains("❌") || log.contains("🔴") || log.contains("Failed")) CyberAccentRed else Color(0xFF38BDF8))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
+    val openTradesAll by viewModel.openTrades.collectAsState()
+    val closedTradesAll by viewModel.closedTrades.collectAsState()
+    val mexcOpenTrades = openTradesAll.filter { it.isMexcTrade && it.isMexcDemoTrade == isDemo }
+    val mexcClosedTrades = closedTradesAll.filter { it.isMexcTrade && it.isMexcDemoTrade == isDemo }
+
+    var subTabSelection by remember { mutableStateOf(0) }
+    val labelPrefix = if (isDemo) "DEMO SPOT" else "LIVE SPOT"
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag("mexc_trades_${if (isDemo) "demo" else "live"}_list"),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        // --- Header summary statistics card ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("mexc_pnl_summary_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("$labelPrefix ACCOUNT PERFORMANCE SUMMARY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val mexcRealized = mexcClosedTrades.sumOf { it.pnl }
+                    val mexcUnrealized = mexcOpenTrades.sumOf { it.pnl }
+                    Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("REALIZED HISTORIC P&L", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(mexcRealized)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (mexcRealized >= 0) CyberAccentGreen else CyberAccentRed)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("UNREALIZED FLOATING P&L", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(mexcUnrealized)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (mexcUnrealized >= 0) CyberAccentGreen else CyberAccentRed)
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- SECURITY PRE-EMPTIVE PROFIT HARVESTER (P&L BALANCER) ---
+        item {
+            val mexcPnLBalancerEnabled by viewModel.mexcPnLBalancerEnabled.collectAsState()
+            val mexcRealized = mexcClosedTrades.sumOf { it.pnl }
+            val mexcUnrealized = mexcOpenTrades.sumOf { it.pnl }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("mexc_pnl_balancer_card_${if (isDemo) "demo" else "live"}"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("SECURITY PRE-EMPTIVE PROFIT HARVESTER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                            Text("Close profitable positions early to offset current negative realized P&L.", fontSize = 11.sp, color = CyberTextDim)
+                        }
+                        Switch(
+                            checked = mexcPnLBalancerEnabled, onCheckedChange = { viewModel.setMexcPnLBalancerEnabled(it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = CyberAccentGreen)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("REALIZED HISTORIC P&L", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(mexcRealized)}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (mexcRealized >= 0) CyberAccentGreen else CyberAccentRed)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("UNREALIZED FLOATING P&L", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(mexcUnrealized)}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (mexcUnrealized >= 0) CyberAccentGreen else CyberAccentRed)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = { viewModel.manualHarvestProfitTrades(isMexc = true, isDemo = isDemo) }, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberSurface)
+                    ) {
+                        Text("FORCE HARVEST WINNING POSITIONS (WITH CONSENT)", color = CyberAccentGreen, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // --- SUB TABS SWITCHER ---
+        item {
+            Row(modifier = Modifier.fillMaxWidth().background(CyberCard, RoundedCornerShape(12.dp)).padding(4.dp)) {
+                Tab(
+                    selected = subTabSelection == 0, onClick = { subTabSelection = 0 }, modifier = Modifier.weight(1f),
+                    text = { Text("OPEN POSITIONS (${mexcOpenTrades.size})", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (subTabSelection == 0) CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace) }
+                )
+                Tab(
+                    selected = subTabSelection == 1, onClick = { subTabSelection = 1 }, modifier = Modifier.weight(1f),
+                    text = { Text("CLOSED SIGNAL JOURNAL (${mexcClosedTrades.size})", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (subTabSelection == 1) CyberAccentGreen else CyberTextDim, fontFamily = FontFamily.Monospace) }
+                )
+            }
+        }
+
+        if (subTabSelection == 0) {
+            if (mexcOpenTrades.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                        Text("No active open $labelPrefix positions currently trading.", color = CyberTextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            } else {
+                items(mexcOpenTrades, key = { it.id }) { tr ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = CyberCard),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(tr.signalType, color = if (tr.signalType == "LONG") CyberAccentGreen else CyberAccentRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(tr.symbol.uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Black, color = CyberTextWhite)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (isDemo) "[DEMO]" else "[LIVE]", fontSize = 8.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                }
+                                val pct = if (tr.entryPrice > 0.0) {
+                                    ((tr.currentPrice - tr.entryPrice) / tr.entryPrice) * 100.0 * (if (tr.signalType == "LONG") 1 else -1)
+                                } else {
+                                    0.0
+                                }
+                                val pctText = if (pct >= 0.0) {
+                                    "+" + String.format(java.util.Locale.US, "%.2f", pct) + "%"
+                                } else {
+                                    String.format(java.util.Locale.US, "%.2f", pct) + "%"
+                                }
+                                Text(
+                                    text = pctText,
+                                    color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("ENTRY PRICE", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.entryPrice)}", fontSize = 11.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text("MARK PRICE", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.currentPrice)}", fontSize = 11.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("PNL ($)", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.pnl)}", fontSize = 11.sp, color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text("SETUP JUSTIFICATION: ${tr.whyTradeReason.ifBlank { "System analysis algorithm trigger" }}", fontSize = 10.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = { viewModel.closePaperTradeManually(tr) }, modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface), shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("MANUAL EXIT FORCEFULLY", color = CyberAccentRed, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            if (mexcClosedTrades.isEmpty()) {
+                item {
+                    Box(modifier = Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                        Text("No closed $labelPrefix trade history logged.", color = CyberTextDim, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            } else {
+                items(mexcClosedTrades, key = { it.id }) { tr ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = CyberCard),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Row {
+                                    Text(tr.symbol.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (isDemo) "[DEMO]" else "[LIVE]", fontSize = 8.sp, color = CyberTextDim)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(tr.status, color = if (tr.status.contains("TP")) CyberAccentGreen else CyberAccentRed, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                }
+                                Text("$${formatCurrency(tr.pnl)}", color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text("JUSTIFICATION: ${tr.whyTradeReason}", fontSize = 9.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }

@@ -26,5 +26,7 @@ data class PaperTrade(
     val isOkxTrade: Boolean = false,
     val okxOrderId: String? = null,
     val isMexcTrade: Boolean = false,
-    val mexcOrderId: String? = null
+    val mexcOrderId: String? = null,
+    val isMexcDemoTrade: Boolean = false,
+    val whyTradeReason: String = ""
 )

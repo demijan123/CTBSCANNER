@@ -313,6 +313,10 @@ class CryptoRepository(
         return paperTradeDao.getOpenTrades()
     }
 
+    suspend fun getClosedTradesList(): List<PaperTrade> {
+        return paperTradeDao.getClosedTrades()
+    }
+
     suspend fun insertPaperTrade(trade: PaperTrade): Long {
         return paperTradeDao.insertTrade(trade)
     }
@@ -327,6 +331,10 @@ class CryptoRepository(
 
     suspend fun deletePaperTrade(trade: PaperTrade) {
         paperTradeDao.deleteTrade(trade)
+    }
+
+    suspend fun deletePaperTrades(trades: List<PaperTrade>) {
+        paperTradeDao.deleteTrades(trades)
     }
 
     suspend fun clearAllPaperTrades() {

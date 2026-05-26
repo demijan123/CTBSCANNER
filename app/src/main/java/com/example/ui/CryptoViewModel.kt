@@ -13,7 +13,6 @@ import com.example.data.local.SavedSignal
 import com.example.data.local.PaperTrade
 import com.example.data.model.Coin
 import com.example.data.repository.CryptoRepository
-import com.example.data.network.OkxClient
 import com.example.data.network.MexcClient
 import java.util.Locale
 import kotlinx.coroutines.delay
@@ -78,82 +77,125 @@ class CryptoViewModel(
     private val _botSelectedCoinIds = MutableStateFlow(prefs.getStringSet("bot_selected_coin_ids", emptySet()) ?: emptySet())
     val botSelectedCoinIds: StateFlow<Set<String>> = _botSelectedCoinIds.asStateFlow()
 
-    // --- OKX Live Trading State ---
-    private val _okxEnabled = MutableStateFlow(prefs.getBoolean("okx_enabled", false))
-    val okxEnabled: StateFlow<Boolean> = _okxEnabled.asStateFlow()
+    // --- NEW MEXC Dedicated Settings ---
+    private val _mexcDemoBalance = MutableStateFlow(prefs.getFloat("mexc_demo_balance", 10000f).toDouble())
+    val mexcDemoBalance: StateFlow<Double> = _mexcDemoBalance.asStateFlow()
 
-    private val _okxIsDemo = MutableStateFlow(prefs.getBoolean("okx_is_demo", true))
-    val okxIsDemo: StateFlow<Boolean> = _okxIsDemo.asStateFlow()
-
-    private val _okxApiKey = MutableStateFlow(prefs.getString("okx_api_key", "00884f07-3877-4b53-a543-39d504adcf99") ?: "00884f07-3877-4b53-a543-39d504adcf99")
-    val okxApiKey: StateFlow<String> = _okxApiKey.asStateFlow()
-
-    private val _okxSecretKey = MutableStateFlow(prefs.getString("okx_secret_key", "220F3C4CE2842CA9B3085F959DEA779F") ?: "220F3C4CE2842CA9B3085F959DEA779F")
-    val okxSecretKey: StateFlow<String> = _okxSecretKey.asStateFlow()
-
-    private val _okxPassphrase = MutableStateFlow(prefs.getString("okx_passphrase", "N@deem123") ?: "N@deem123")
-    val okxPassphrase: StateFlow<String> = _okxPassphrase.asStateFlow()
-
-    private val _okxBalance = MutableStateFlow(0.0)
-    val okxBalance: StateFlow<Double> = _okxBalance.asStateFlow()
-
-    private val _okxConnectionStatus = MutableStateFlow("Disconnected")
-    val okxConnectionStatus: StateFlow<String> = _okxConnectionStatus.asStateFlow()
-
-    fun setOkxEnabled(enabled: Boolean) {
-        _okxEnabled.value = enabled
-        prefs.edit().putBoolean("okx_enabled", enabled).apply()
-        addLog(if (enabled) "🟢 OKX Live/Demo Execution ROUTED." else "🔴 OKX Live/Demo Execution DEACTIVATED.")
-        if (enabled) {
-            validateAndRefreshOkxBalance()
-        }
+    fun setMexcDemoBalance(balance: Double) {
+        _mexcDemoBalance.value = balance
+        prefs.edit().putFloat("mexc_demo_balance", balance.toFloat()).apply()
+        addLog("💼 MEXC Demo Balance manual update: $${String.format(Locale.US, "%.2f", balance)}")
     }
 
-    fun setOkxIsDemo(isDemo: Boolean) {
-        _okxIsDemo.value = isDemo
-        prefs.edit().putBoolean("okx_is_demo", isDemo).apply()
-        addLog("🤖 OKX Mode set to ${if (isDemo) "DEMO/SIMULATED" else "LIVE ORDER BOOK"}")
-        validateAndRefreshOkxBalance()
+    private val _mexcBotEnabled = MutableStateFlow(prefs.getBoolean("mexc_bot_enabled", false))
+    val mexcBotEnabled: StateFlow<Boolean> = _mexcBotEnabled.asStateFlow()
+
+    fun setMexcBotEnabled(enabled: Boolean) {
+        _mexcBotEnabled.value = enabled
+        prefs.edit().putBoolean("mexc_bot_enabled", enabled).apply()
+        addLog(if (enabled) "🟢 MEXC independent Auto Bot started!" else "🔴 MEXC Auto Bot stopped.")
     }
 
-    fun saveOkxCredentials(apiKey: String, secretKey: String, passphrase: String) {
-        _okxApiKey.value = apiKey
-        _okxSecretKey.value = secretKey
-        _okxPassphrase.value = passphrase
-        prefs.edit()
-            .putString("okx_api_key", apiKey)
-            .putString("okx_secret_key", secretKey)
-            .putString("okx_passphrase", passphrase)
-            .apply()
-        addLog("🤖 Saved OKX API Credentials manually.")
-        validateAndRefreshOkxBalance()
+    private val _mexcBotMaxTrades = MutableStateFlow(prefs.getInt("mexc_bot_max_trades", 10).coerceIn(1, 50))
+    val mexcBotMaxTrades: StateFlow<Int> = _mexcBotMaxTrades.asStateFlow()
+
+    fun setMexcBotMaxTrades(max: Int) {
+        val coerced = max.coerceIn(1, 50)
+        _mexcBotMaxTrades.value = coerced
+        prefs.edit().putInt("mexc_bot_max_trades", coerced).apply()
     }
 
-    fun validateAndRefreshOkxBalance() {
-        val key = _okxApiKey.value
-        val sec = _okxSecretKey.value
-        val pass = _okxPassphrase.value
-        val isDemo = _okxIsDemo.value
+    private val _mexcBotTradeSize = MutableStateFlow(prefs.getFloat("mexc_bot_trade_size", 500f).toDouble())
+    val mexcBotTradeSize: StateFlow<Double> = _mexcBotTradeSize.asStateFlow()
 
-        if (key.isBlank() || sec.isBlank() || pass.isBlank()) {
-            _okxConnectionStatus.value = "Credentials Missing"
-            return
-        }
+    fun setMexcBotTradeSize(size: Double) {
+        _mexcBotTradeSize.value = size
+        prefs.edit().putFloat("mexc_bot_trade_size", size.toFloat()).apply()
+    }
 
-        _okxConnectionStatus.value = "Connecting..."
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val balance = OkxClient.validateAndFetchBalance(key, sec, pass, isDemo)
-                _okxBalance.value = balance
-                _okxConnectionStatus.value = "Connected: ${String.format(Locale.US, "%.2f", balance)} USDT (${if (isDemo) "Demo" else "Live"})"
-                addLog("🟢 OKX API connection verified successfully. Balance: $${String.format(Locale.US, "%.2f", balance)} USDT.")
-            } catch (e: Throwable) {
-                _okxBalance.value = 0.0
-                val errMsg = e.localizedMessage ?: "Connection Failed"
-                _okxConnectionStatus.value = "Error: $errMsg"
-                addLog("❌ OKX API connection failed: $errMsg")
-            }
+    private val _mexcBotSelectionMode = MutableStateFlow(prefs.getString("mexc_bot_selection_mode", "AUTO") ?: "AUTO")
+    val mexcBotSelectionMode: StateFlow<String> = _mexcBotSelectionMode.asStateFlow()
+
+    fun setMexcBotSelectionMode(mode: String) {
+        _mexcBotSelectionMode.value = mode
+        prefs.edit().putString("mexc_bot_selection_mode", mode).apply()
+    }
+
+    private val _mexcBotTargetCoinMode = MutableStateFlow(prefs.getString("mexc_bot_target_coin_mode", "ALL") ?: "ALL")
+    val mexcBotTargetCoinMode: StateFlow<String> = _mexcBotTargetCoinMode.asStateFlow()
+
+    fun setMexcBotTargetCoinMode(mode: String) {
+        _mexcBotTargetCoinMode.value = mode
+        prefs.edit().putString("mexc_bot_target_coin_mode", mode).apply()
+        addLog("🤖 [MEXC Bot] Configured Bot Target Coin Mode to: $mode")
+    }
+
+    private val _mexcBotSelectedCoinIds = MutableStateFlow(prefs.getStringSet("mexc_bot_selected_coin_ids", emptySet()) ?: emptySet())
+    val mexcBotSelectedCoinIds: StateFlow<Set<String>> = _mexcBotSelectedCoinIds.asStateFlow()
+
+    fun toggleMexcBotSelectedCoin(coinId: String) {
+        val current = _mexcBotSelectedCoinIds.value.toMutableSet()
+        if (current.contains(coinId)) {
+            current.remove(coinId)
+            addLog("🤖 [MEXC Bot] Excluded coin from bot target: $coinId")
+        } else {
+            current.add(coinId)
+            addLog("🤖 [MEXC Bot] Included coin in bot target: $coinId")
         }
+        _mexcBotSelectedCoinIds.value = current
+        prefs.edit().putStringSet("mexc_bot_selected_coin_ids", current).apply()
+    }
+
+    fun clearMexcBotSelectedCoins() {
+        _mexcBotSelectedCoinIds.value = emptySet()
+        prefs.edit().putStringSet("mexc_bot_selected_coin_ids", emptySet()).apply()
+        addLog("🤖 [MEXC Bot] Cleared all bot target custom coins")
+    }
+
+    private val _mexcBotSelectedBlueprints = MutableStateFlow(
+        prefs.getStringSet("mexc_bot_selected_blueprints", defaultBlueprints) ?: defaultBlueprints
+    )
+    val mexcBotSelectedBlueprints: StateFlow<Set<String>> = _mexcBotSelectedBlueprints.asStateFlow()
+
+    fun toggleMexcBotBlueprint(blueprintTitle: String) {
+        val current = _mexcBotSelectedBlueprints.value.toMutableSet()
+        if (current.contains(blueprintTitle)) {
+            current.remove(blueprintTitle)
+            addLog("🤖 [MEXC Bot] Excluded blueprint: $blueprintTitle")
+        } else {
+            current.add(blueprintTitle)
+            addLog("🤖 [MEXC Bot] Included blueprint: $blueprintTitle")
+        }
+        _mexcBotSelectedBlueprints.value = current
+        prefs.edit().putStringSet("mexc_bot_selected_blueprints", current).apply()
+    }
+
+    private val _mexcBotScanMode = MutableStateFlow(prefs.getString("mexc_bot_scan_mode", "COINGECKO") ?: "COINGECKO")
+    val mexcBotScanMode: StateFlow<String> = _mexcBotScanMode.asStateFlow()
+
+    fun setMexcBotScanMode(mode: String) {
+        _mexcBotScanMode.value = mode
+        prefs.edit().putString("mexc_bot_scan_mode", mode).apply()
+        addLog("🤖 [MEXC Bot] Scanning strategy set to: ${if (mode == "COINGECKO") "CoinGecko Filter & MEXC Check" else "Direct MEXC Liquidity Pairs"}")
+    }
+
+    // --- P&L Balancer & Profit Harvesting ---
+    private val _paperPnLBalancerEnabled = MutableStateFlow(prefs.getBoolean("paper_pnl_balancer", false))
+    val paperPnLBalancerEnabled: StateFlow<Boolean> = _paperPnLBalancerEnabled.asStateFlow()
+
+    fun setPaperPnLBalancerEnabled(enabled: Boolean) {
+        _paperPnLBalancerEnabled.value = enabled
+        prefs.edit().putBoolean("paper_pnl_balancer", enabled).apply()
+        addLog(if (enabled) "🛡️ Paper PnL Mitigator ACTIVE." else "🛡️ Paper PnL Mitigator DISABLED.")
+    }
+
+    private val _mexcPnLBalancerEnabled = MutableStateFlow(prefs.getBoolean("mexc_pnl_balancer", false))
+    val mexcPnLBalancerEnabled: StateFlow<Boolean> = _mexcPnLBalancerEnabled.asStateFlow()
+
+    fun setMexcPnLBalancerEnabled(enabled: Boolean) {
+        _mexcPnLBalancerEnabled.value = enabled
+        prefs.edit().putBoolean("mexc_pnl_balancer", enabled).apply()
+        addLog(if (enabled) "🛡️ MEXC PnL Mitigator ACTIVE." else "🛡️ MEXC PnL Mitigator DISABLED.")
     }
 
     // --- MEXC Live Trading State ---
@@ -365,10 +407,6 @@ class CryptoViewModel(
         )
 
     init {
-        // Automatically test OKX credentials if enabled on init
-        if (_okxEnabled.value) {
-            validateAndRefreshOkxBalance()
-        }
         // Automatically test MEXC credentials if enabled on init
         if (_mexcEnabled.value) {
             validateAndRefreshMexcBalance()
@@ -393,6 +431,9 @@ class CryptoViewModel(
                     updateLiveOpenTrades()
                     if (_botEnabled.value) {
                         runBotAutoTradingCycle()
+                    }
+                    if (_mexcBotEnabled.value) {
+                        runMexcBotAutoTradingCycle()
                     }
                 } catch (e: Throwable) {
                     Log.e("CryptoViewModel", "Error in paper trading live ticking loop: ${e.message}")
@@ -567,27 +608,6 @@ class CryptoViewModel(
 
     // --- Core Paper Trading Operations ---
     
-    private suspend fun closeOkxPositionIfLive(trade: PaperTrade, exitPrice: Double) {
-        if (!trade.isOkxTrade || trade.okxOrderId.isNullOrBlank()) return
-        try {
-            val isDemo = _okxIsDemo.value
-            addLog("💼 [OKX Execution] Closing live OKX position for ${trade.symbol.uppercase()} (QTY: ${String.format(Locale.US, "%.5f", trade.quantity)}) by placing market SELL order...")
-            val closeOrdId = OkxClient.placeMarketOrder(
-                apiKey = _okxApiKey.value,
-                secretKey = _okxSecretKey.value,
-                passphrase = _okxPassphrase.value,
-                isDemo = isDemo,
-                symbol = trade.symbol,
-                isBuy = false,
-                size = trade.quantity
-            )
-            addLog("🎯 [OKX Execution] Market SELL filled on OKX. Order ID: $closeOrdId. Position closed.")
-            validateAndRefreshOkxBalance()
-        } catch (e: Exception) {
-            addLog("❌ [OKX Execution Failed] Error closing OKX order for ${trade.symbol.uppercase()}: ${e.localizedMessage ?: "Unknown error"}")
-        }
-    }
-
     private suspend fun closeMexcPositionIfLive(trade: PaperTrade, exitPrice: Double) {
         if (!trade.isMexcTrade || trade.mexcOrderId.isNullOrBlank()) return
         try {
@@ -611,6 +631,11 @@ class CryptoViewModel(
     private suspend fun updateLiveOpenTrades() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val openPositions = repository.getOpenTradesList()
         if (openPositions.isEmpty()) return@withContext
+
+        val closedList = repository.getClosedTradesList()
+        val paperRealizedPnl = closedList.filter { !it.isMexcTrade }.sumOf { it.pnl }
+        val mexcDemoRealizedPnl = closedList.filter { it.isMexcTrade && it.isMexcDemoTrade }.sumOf { it.pnl }
+        val mexcLiveRealizedPnl = closedList.filter { it.isMexcTrade && !it.isMexcDemoTrade }.sumOf { it.pnl }
 
         val tradesToUpdate = mutableListOf<PaperTrade>()
         var balanceDelta = 0.0
@@ -655,7 +680,23 @@ class CryptoViewModel(
                 }
             }
 
-            if (triggerClose) {
+            // P&L Balancer & Profit Harvesting early close check
+            val isMexc = trade.isMexcTrade
+            var forceCloseByBalancer = false
+            if (!isMexc && _paperPnLBalancerEnabled.value && paperRealizedPnl < 0.0 && pnl > 0.0) {
+                forceCloseByBalancer = true
+                finalStatus = "CLOSED_BALANCER"
+                exitPrice = currentPrice
+            } else if (isMexc && _mexcPnLBalancerEnabled.value) {
+                val realPnlToCheck = if (trade.isMexcDemoTrade) mexcDemoRealizedPnl else mexcLiveRealizedPnl
+                if (realPnlToCheck < 0.0 && pnl > 0.0) {
+                    forceCloseByBalancer = true
+                    finalStatus = "CLOSED_BALANCER"
+                    exitPrice = currentPrice
+                }
+            }
+
+            if (triggerClose || forceCloseByBalancer) {
                 val finalPnl = if (isBuy) {
                     (exitPrice - trade.entryPrice) * trade.quantity
                 } else {
@@ -670,24 +711,31 @@ class CryptoViewModel(
                 )
                 tradesToUpdate.add(closedTrade)
 
-                if (trade.isOkxTrade) {
-                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        closeOkxPositionIfLive(trade, exitPrice)
-                    }
-                } else if (trade.isMexcTrade) {
-                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        closeMexcPositionIfLive(trade, exitPrice)
+                if (trade.isMexcTrade) {
+                    if (trade.isMexcDemoTrade) {
+                        val returnFund = trade.investedAmount + finalPnl
+                        _mexcDemoBalance.update { current ->
+                            val updated = current + returnFund
+                            prefs.edit().putFloat("mexc_demo_balance", updated.toFloat()).apply()
+                            updated
+                        }
+                    } else {
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            closeMexcPositionIfLive(trade, exitPrice)
+                        }
                     }
                 } else {
                     val returnFund = trade.investedAmount + finalPnl
                     balanceDelta += returnFund
                 }
+
                 val modeLabel = when {
-                    trade.isOkxTrade -> "OKX Live Target"
+                    trade.isMexcTrade && trade.isMexcDemoTrade -> "MEXC Demo Target"
                     trade.isMexcTrade -> "MEXC Live Target"
                     else -> "Paper Trigger"
                 }
-                addLog("📢 [$modeLabel] ${trade.symbol.uppercase()} hit target. Closed position via $finalStatus! PnL: $${String.format(java.util.Locale.US, "%.2f", finalPnl)}")
+                val reasonText = if (forceCloseByBalancer) "Early Harvest (PnL Balancer)" else "target condition"
+                addLog("📢 [$modeLabel] ${trade.symbol.uppercase()} closed early via $reasonText! PnL: $${String.format(java.util.Locale.US, "%.2f", finalPnl)}")
             } else {
                 val updatedTrade = trade.copy(
                     currentPrice = currentPrice,
@@ -719,88 +767,132 @@ class CryptoViewModel(
     ): Boolean {
         if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
         
-        if (!_okxEnabled.value && !_mexcEnabled.value) {
-            val deducted = modifyCashBalance(-investedAmount)
-            if (!deducted) {
-                _error.value = "Insufficient paper trading capital"
-                addLog("❌ Paper trade failed: Insufficient balance.")
-                return false
-            }
-        } else {
-            // Deduct mock cash balance if available, but do not block if it is depleted since we use exchange real capital
-            modifyCashBalance(-investedAmount)
+        val deducted = modifyCashBalance(-investedAmount)
+        if (!deducted) {
+            _error.value = "Insufficient paper trading capital"
+            addLog("❌ Paper trade failed: Insufficient balance.")
+            return false
         }
 
-        if (_mexcEnabled.value) {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    addLog("💼 [MEXC Execution] Initiating market ${if (signalType == "LONG") "BUY" else "SELL (Short)"} for ${symbol.uppercase()}...")
-                    
-                    if (signalType == "SHORT") {
-                        addLog("⚠️ [MEXC Spot Limit] MEXC spot account does not support short selling directly. Executing as paper position instead.")
-                        insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
-                        return@launch
-                    }
-
-                    val ordId = MexcClient.placeMarketOrder(
-                        apiKey = _mexcApiKey.value,
-                        secretKey = _mexcSecretKey.value,
-                        isDemo = _mexcIsDemo.value,
-                        symbol = symbol,
-                        isBuy = true,
-                        size = investedAmount
-                    )
-
-                    addLog("🎯 [MEXC Execution] Spot Market BUY order filled on MEXC. Order ID: $ordId")
-                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isMexc = true, mexcOrderId = ordId)
-                    validateAndRefreshMexcBalance()
-                } catch (e: Throwable) {
-                    val errorMsg = e.localizedMessage ?: "Unknown Error"
-                    addLog("❌ [MEXC Execution Failed] Error placing order for ${symbol.uppercase()}: $errorMsg. Saving as paper position only.")
-                    // Fallback to regular paper trade in DB
-                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
-                }
-            }
-        } else if (_okxEnabled.value) {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    addLog("💼 [OKX Execution] Initiating market ${if (signalType == "LONG") "BUY" else "SELL (Short)"} for ${symbol.uppercase()}...")
-                    
-                    if (signalType == "SHORT") {
-                        addLog("⚠️ [OKX Spot Limit] OKX spot account does not support short selling directly. Executing as paper position instead.")
-                        insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
-                        return@launch
-                    }
-
-                    val ordId = OkxClient.placeMarketOrder(
-                        apiKey = _okxApiKey.value,
-                        secretKey = _okxSecretKey.value,
-                        passphrase = _okxPassphrase.value,
-                        isDemo = _okxIsDemo.value,
-                        symbol = symbol,
-                        isBuy = true,
-                        size = investedAmount
-                    )
-
-                    addLog("🎯 [OKX Execution] Spot Market BUY order filled on OKX. Order ID: $ordId")
-                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy, isOkx = true, orderId = ordId)
-                    validateAndRefreshOkxBalance()
-                } catch (e: Exception) {
-                    val errorMsg = e.localizedMessage ?: "Unknown Error"
-                    addLog("❌ [OKX Execution Failed] Error placing order for ${symbol.uppercase()}: $errorMsg. Saving as paper position only.")
-                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
-                }
-            }
-        } else {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    insertPaperTradeInDb(coinId, symbol, name, image, signalType, entryPrice, stopLoss, takeProfit, investedAmount, strategy)
-                } catch (e: Exception) {
-                    Log.e("CryptoViewModel", "Error opening paper trade: ${e.message}", e)
-                }
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                insertPaperTradeInDb(
+                    coinId = coinId,
+                    symbol = symbol,
+                    name = name,
+                    image = image,
+                    signalType = signalType,
+                    entryPrice = entryPrice,
+                    stopLoss = stopLoss,
+                    takeProfit = takeProfit,
+                    investedAmount = investedAmount,
+                    strategy = strategy,
+                    isMexc = false,
+                    isMexcDemo = false
+                )
+            } catch (e: Exception) {
+                Log.e("CryptoViewModel", "Error opening paper trade: ${e.message}", e)
             }
         }
         return true
+    }
+
+    fun executeMexcTrade(
+        coinId: String,
+        symbol: String,
+        name: String,
+        image: String?,
+        signalType: String,
+        entryPrice: Double,
+        stopLoss: Double,
+        takeProfit: Double,
+        investedAmount: Double,
+        strategy: String = "Manual MEXC",
+        isDemo: Boolean
+    ): Boolean {
+        if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
+
+        if (isDemo) {
+            var success = true
+            _mexcDemoBalance.update { current ->
+                if (current < investedAmount) {
+                    success = false
+                    current
+                } else {
+                    val updated = current - investedAmount
+                    prefs.edit().putFloat("mexc_demo_balance", updated.toFloat()).apply()
+                    updated
+                }
+            }
+            if (!success) {
+                _error.value = "Insufficient MEXC Demo capital"
+                addLog("❌ MEXC Demo trade failed: Insufficient balance ($${String.format(Locale.US, "%.2f", _mexcDemoBalance.value)}).")
+                return false
+            }
+            
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val demoOrderId = "MEXC-DEMO-" + (10000000..99999999).random()
+                insertPaperTradeInDb(
+                    coinId = coinId,
+                    symbol = symbol,
+                    name = name,
+                    image = image,
+                    signalType = signalType,
+                    entryPrice = entryPrice,
+                    stopLoss = stopLoss,
+                    takeProfit = takeProfit,
+                    investedAmount = investedAmount,
+                    strategy = strategy,
+                    isMexc = true,
+                    isMexcDemo = true,
+                    mexcOrderId = demoOrderId,
+                    whyReason = strategy
+                )
+            }
+            return true
+        } else {
+            // Real Live Trade
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    addLog("💼 [MEXC Live] Placing Spot Order for ${symbol.uppercase()} ($signalType)...")
+                    if (signalType == "SHORT") {
+                        addLog("⚠️ [MEXC Spot Limit] Spot short selling is not natively supported directly. Executing simulated spot short order.")
+                    }
+                    
+                    val ordId = MexcClient.placeMarketOrder(
+                        apiKey = _mexcApiKey.value,
+                        secretKey = _mexcSecretKey.value,
+                        isDemo = false,
+                        symbol = symbol,
+                        isBuy = (signalType == "LONG"),
+                        size = investedAmount
+                    )
+                    addLog("🎯 [MEXC Live] Spot Market order filled on MEXC! Order ID: $ordId")
+                    insertPaperTradeInDb(
+                        coinId = coinId,
+                        symbol = symbol,
+                        name = name,
+                        image = image,
+                        signalType = signalType,
+                        entryPrice = entryPrice,
+                        stopLoss = stopLoss,
+                        takeProfit = takeProfit,
+                        investedAmount = investedAmount,
+                        strategy = strategy,
+                        isMexc = true,
+                        isMexcDemo = false,
+                        mexcOrderId = ordId,
+                        whyReason = strategy
+                    )
+                    validateAndRefreshMexcBalance()
+                } catch (e: Throwable) {
+                    val errMsg = e.localizedMessage ?: "Unknown API Error"
+                    addLog("❌ [MEXC Live Failed] Order failed on exchange: $errMsg. Execution halted.")
+                    _error.value = "MEXC Live Order Failed: $errMsg"
+                }
+            }
+            return true
+        }
     }
 
     private suspend fun insertPaperTradeInDb(
@@ -814,10 +906,10 @@ class CryptoViewModel(
         takeProfit: Double,
         investedAmount: Double,
         strategy: String,
-        isOkx: Boolean = false,
-        orderId: String? = null,
         isMexc: Boolean = false,
-        mexcOrderId: String? = null
+        isMexcDemo: Boolean = false,
+        mexcOrderId: String? = null,
+        whyReason: String = ""
     ) {
         val quantity = investedAmount / entryPrice
         val newTrade = PaperTrade(
@@ -835,18 +927,18 @@ class CryptoViewModel(
             pnl = 0.0,
             investedAmount = investedAmount,
             strategy = strategy,
-            isOkxTrade = isOkx,
-            okxOrderId = orderId,
             isMexcTrade = isMexc,
-            mexcOrderId = mexcOrderId
+            mexcOrderId = mexcOrderId,
+            isMexcDemoTrade = isMexcDemo,
+            whyTradeReason = whyReason.ifBlank { strategy }
         )
         repository.insertPaperTrade(newTrade)
         val modeText = when {
-            isOkx -> "OKX Live Order"
-            isMexc -> "MEXC Live Order"
-            else -> "Paper Trade"
+            isMexc && isMexcDemo -> "MEXC Demo Position"
+            isMexc -> "MEXC Live Position"
+            else -> "Regular Paper Position"
         }
-        addLog("🚀 Opened $modeText: $signalType ${symbol.uppercase()} size: $${String.format(Locale.US, "%.2f", investedAmount)}")
+        addLog("🚀 Opened $modeText: $signalType ${symbol.uppercase()} | Size: $${String.format(Locale.US, "%.2f", investedAmount)}")
     }
 
     fun closePaperTradeManually(trade: PaperTrade) {
@@ -869,16 +961,22 @@ class CryptoViewModel(
                 )
                 repository.updatePaperTrade(closedTrade)
 
-                if (trade.isOkxTrade) {
-                    closeOkxPositionIfLive(trade, exitPrice)
-                } else if (trade.isMexcTrade) {
-                    closeMexcPositionIfLive(trade, exitPrice)
+                if (trade.isMexcTrade) {
+                    if (trade.isMexcDemoTrade) {
+                        _mexcDemoBalance.update { current ->
+                            val updated = current + trade.investedAmount + pnl
+                            prefs.edit().putFloat("mexc_demo_balance", updated.toFloat()).apply()
+                            updated
+                        }
+                    } else {
+                        closeMexcPositionIfLive(trade, exitPrice)
+                    }
                 } else {
                     modifyCashBalance(trade.investedAmount + pnl)
                 }
                 
                 val sourceLabel = when {
-                    trade.isOkxTrade -> "live OKX position"
+                    trade.isMexcTrade && trade.isMexcDemoTrade -> "MEXC Demo Position"
                     trade.isMexcTrade -> "live MEXC position"
                     else -> "paper trade"
                 }
@@ -898,6 +996,167 @@ class CryptoViewModel(
             } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Error resetting trade account: ${e.message}", e)
             }
+        }
+    }
+
+    fun manualHarvestProfitTrades(isMexc: Boolean, isDemo: Boolean = false) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val openList = repository.getOpenTradesList()
+                val closedList = repository.getClosedTradesList()
+                val realizedPnl = if (isMexc) {
+                    closedList.filter { it.isMexcTrade && it.isMexcDemoTrade == isDemo }.sumOf { it.pnl }
+                } else {
+                    closedList.filter { !it.isMexcTrade }.sumOf { it.pnl }
+                }
+                
+                val modeLabel = if (isMexc) (if (isDemo) "MEXC Demo" else "MEXC Live") else "Paper"
+                if (realizedPnl >= 0.0) {
+                    addLog("🛡️ [P&L Balancer] $modeLabel Realized Pnl is positive ($${String.format(Locale.US, "%.2f", realizedPnl)}). No harvest needed.")
+                    return@launch
+                }
+                
+                val targets = openList.filter { it.isMexcTrade == isMexc && (!isMexc || it.isMexcDemoTrade == isDemo) && it.pnl > 0.0 }
+                if (targets.isEmpty()) {
+                    addLog("🛡️ [P&L Balancer] $modeLabel No profitable positions to balance current negative realized PnL.")
+                    return@launch
+                }
+                
+                addLog("🛡️ [P&L Balancer] Initiated early harvest of ${targets.size} profitable positions in $modeLabel with consent...")
+                for (trade in targets) {
+                    closePaperTradeManually(trade)
+                }
+            } catch (e: Throwable) {
+                Log.e("CryptoViewModel", "Error harvesting profit trades: ${e.message}")
+            }
+        }
+    }
+
+    fun resetMexcDemoBalance() {
+        setMexcDemoBalance(10000.0)
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val allTrades = repository.getOpenTradesList() + repository.getClosedTradesList()
+                val mexcDemoTrades = allTrades.filter { it.isMexcTrade && it.isMexcDemoTrade }
+                repository.deletePaperTrades(mexcDemoTrades)
+                addLog("💼 [MEXC Demo] Simulated trading history cleared. Balance reset to $10,000.00 USDT.")
+            } catch (e: Exception) {
+                Log.e("CryptoViewModel", "Error resetting Mexc Demo: ${e.message}")
+            }
+        }
+    }
+
+    @Volatile private var isMexcBotScanning = false
+    @Volatile private var mexcBotScannedCoins: List<Coin> = emptyList()
+    @Volatile private var lastMexcBotScanTime = 0L
+
+    private suspend fun runMexcBotAutoTradingCycle() {
+        if (isMexcBotScanning) return
+        isMexcBotScanning = true
+        try {
+            val maxTrades = _mexcBotMaxTrades.value
+            val openTrades = repository.getOpenTradesList()
+            val currentActive = openTrades.filter { it.isMexcTrade }.size
+            if (currentActive >= maxTrades) {
+                return
+            }
+
+            var spotsNeeded = maxTrades - currentActive
+            if (spotsNeeded <= 0) return
+
+            val now = System.currentTimeMillis()
+            val scanMode = _mexcBotScanMode.value
+            
+            val coins = if (scanMode == "COINGECKO") {
+                val range = getActiveMarketCapRange()
+                if (mexcBotScannedCoins.isEmpty() || (now - lastMexcBotScanTime) > 60000L) {
+                    val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                    mexcBotScannedCoins = fetched
+                    lastMexcBotScanTime = now
+                    fetched
+                } else {
+                    mexcBotScannedCoins
+                }
+            } else {
+                val range = getActiveMarketCapRange()
+                if (mexcBotScannedCoins.isEmpty() || (now - lastMexcBotScanTime) > 60000L) {
+                    val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                    mexcBotScannedCoins = fetched
+                    lastMexcBotScanTime = now
+                    fetched
+                } else {
+                    mexcBotScannedCoins
+                }
+            }
+
+            if (coins.isEmpty()) return
+
+            var targetCoins = coins
+            if (_mexcBotTargetCoinMode.value == "CUSTOM") {
+                val selectedIds = _mexcBotSelectedCoinIds.value
+                targetCoins = coins.filter { selectedIds.contains(it.id) }
+            }
+
+            if (targetCoins.isEmpty()) return
+
+            val openSymbols = openTrades.filter { it.isMexcTrade }.map { it.symbol.lowercase() }.toSet()
+            val tradeSize = _mexcBotTradeSize.value
+            val isDemo = _mexcIsDemo.value
+
+            for (coin in targetCoins) {
+                if (spotsNeeded <= 0) break
+                if (openSymbols.contains(coin.symbol.lowercase())) continue
+
+                // Check MEXC balance availability
+                if (isDemo) {
+                    if (_mexcDemoBalance.value < tradeSize) {
+                        addLog("🤖 [MEXC Bot] Insufficient simulated DEMO balance ($${String.format(java.util.Locale.US, "%.2f", _mexcDemoBalance.value)}) to open trade of size $${String.format(java.util.Locale.US, "%.2f", tradeSize)}")
+                        break
+                    }
+                } else {
+                    if (_mexcBalance.value < tradeSize) {
+                        addLog("🤖 [MEXC Bot] Insufficient real MEXC API balance ($${String.format(java.util.Locale.US, "%.2f", _mexcBalance.value)}) to open trade of size $${String.format(java.util.Locale.US, "%.2f", tradeSize)}")
+                        break
+                    }
+                }
+
+                val prediction = repository.predictTradeSignal(coin)
+                if (prediction.signal == "LONG" || prediction.signal == "SHORT") {
+                    if (prediction.confidence >= 80) {
+                        val isStrategyAllowed = if (_mexcBotSelectionMode.value == "AUTO") {
+                            true
+                        } else {
+                            _mexcBotSelectedBlueprints.value.contains(prediction.strategy)
+                        }
+
+                        if (isStrategyAllowed) {
+                            val success = executeMexcTrade(
+                                coinId = coin.id,
+                                symbol = coin.symbol,
+                                name = coin.name,
+                                image = coin.image,
+                                signalType = prediction.signal,
+                                entryPrice = coin.currentPrice,
+                                stopLoss = prediction.stopLoss,
+                                takeProfit = prediction.takeProfit,
+                                investedAmount = tradeSize,
+                                strategy = prediction.strategy,
+                                isDemo = isDemo
+                            )
+                            if (success) {
+                                spotsNeeded--
+                                addLog("🤖 [MEXC Bot] Qualified signal on ${coin.symbol.uppercase()} via '${prediction.strategy}' Setup. Automatically executed MEXC trade.")
+                            }
+                        }
+                    }
+                }
+                val botDelay = if (isModelKeyConfigured) 1200L else 150L
+                delay(botDelay)
+            }
+        } catch (e: Throwable) {
+            Log.e("CryptoViewModel", "MEXC Bot scanner cycle error: ${e.message}", e)
+        } finally {
+            isMexcBotScanning = false
         }
     }
 

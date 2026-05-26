@@ -22,6 +22,9 @@ interface PaperTradeDao {
     @Query("SELECT * FROM paper_trades WHERE status != 'OPEN' ORDER BY timestamp DESC")
     fun getClosedTradesFlow(): Flow<List<PaperTrade>>
 
+    @Query("SELECT * FROM paper_trades WHERE status != 'OPEN' ORDER BY timestamp DESC")
+    suspend fun getClosedTrades(): List<PaperTrade>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrade(trade: PaperTrade): Long
 
@@ -33,6 +36,9 @@ interface PaperTradeDao {
 
     @Delete
     suspend fun deleteTrade(trade: PaperTrade)
+
+    @Delete
+    suspend fun deleteTrades(trades: List<PaperTrade>)
 
     @Query("DELETE FROM paper_trades")
     suspend fun clearAllTrades()

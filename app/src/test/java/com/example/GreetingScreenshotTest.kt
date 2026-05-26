@@ -84,4 +84,49 @@ class GreetingScreenshotTest {
     // Capture the completed results screen screenshot!
     composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/backtest_results.png")
   }
+
+  @Test
+  fun test_mexc_console_tab_rendering() {
+    val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>() as android.app.Application
+    val db = com.example.data.local.AppDatabase.getDatabase(context)
+    val repository = com.example.data.repository.CryptoRepository(db.coinDao(), db.paperTradeDao())
+    val viewModel = com.example.ui.CryptoViewModel(context, repository)
+
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        MexcTradingConsoleTab(viewModel = viewModel)
+      }
+    }
+    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/mexc_console_rendered.png")
+  }
+
+  @Test
+  fun test_mexc_demo_trades_tab_rendering() {
+    val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>() as android.app.Application
+    val db = com.example.data.local.AppDatabase.getDatabase(context)
+    val repository = com.example.data.repository.CryptoRepository(db.coinDao(), db.paperTradeDao())
+    val viewModel = com.example.ui.CryptoViewModel(context, repository)
+
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        MexcTradesTab(viewModel = viewModel, isDemo = true)
+      }
+    }
+    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/mexc_demo_trades_rendered.png")
+  }
+
+  @Test
+  fun test_mexc_live_trades_tab_rendering() {
+    val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>() as android.app.Application
+    val db = com.example.data.local.AppDatabase.getDatabase(context)
+    val repository = com.example.data.repository.CryptoRepository(db.coinDao(), db.paperTradeDao())
+    val viewModel = com.example.ui.CryptoViewModel(context, repository)
+
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        MexcTradesTab(viewModel = viewModel, isDemo = false)
+      }
+    }
+    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/mexc_live_trades_rendered.png")
+  }
 }
