@@ -284,6 +284,13 @@ class CryptoViewModel(
             initialValue = emptyList()
         )
 
+    val allTransactionsList: StateFlow<List<PaperTrade>> = repository.allTrades
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     fun modifyCashBalance(delta: Double): Boolean {
         var success = true
         _cashBalance.update { current ->
@@ -357,7 +364,7 @@ class CryptoViewModel(
 
     private fun triggerMarketScanOnConfigChange() {
         scanOnConfigChangeJob?.cancel()
-        scanOnConfigChangeJob = viewModelScope.launch {
+        scanOnConfigChangeJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 delay(300)
                 val range = getActiveMarketCapRange()
@@ -468,7 +475,7 @@ class CryptoViewModel(
     fun startFullMarketScan(useFallbackOnly: Boolean = false) {
         if (_isScanning.value) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _isScanning.value = true
             _scanProgress.value = 0.05f
             _error.value = null
@@ -580,7 +587,7 @@ class CryptoViewModel(
     }
 
     fun toggleBookmark(signal: SavedSignal) {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val updated = signal.copy(isBookmarked = !signal.isBookmarked)
                 repository.updateSignal(updated)
@@ -592,7 +599,7 @@ class CryptoViewModel(
     }
 
     fun deleteSignal(signal: SavedSignal) {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 repository.deleteSignal(signal)
                 addLog("Dismissed signal setup for ${signal.symbol.uppercase()}")
@@ -831,23 +838,27 @@ class CryptoViewModel(
             }
             
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val demoOrderId = "MEXC-DEMO-" + (10000000..99999999).random()
-                insertPaperTradeInDb(
-                    coinId = coinId,
-                    symbol = symbol,
-                    name = name,
-                    image = image,
-                    signalType = signalType,
-                    entryPrice = entryPrice,
-                    stopLoss = stopLoss,
-                    takeProfit = takeProfit,
-                    investedAmount = investedAmount,
-                    strategy = strategy,
-                    isMexc = true,
-                    isMexcDemo = true,
-                    mexcOrderId = demoOrderId,
-                    whyReason = strategy
-                )
+                try {
+                    val demoOrderId = "MEXC-DEMO-" + (10000000..99999999).random()
+                    insertPaperTradeInDb(
+                        coinId = coinId,
+                        symbol = symbol,
+                        name = name,
+                        image = image,
+                        signalType = signalType,
+                        entryPrice = entryPrice,
+                        stopLoss = stopLoss,
+                        takeProfit = takeProfit,
+                        investedAmount = investedAmount,
+                        strategy = strategy,
+                        isMexc = true,
+                        isMexcDemo = true,
+                        mexcOrderId = demoOrderId,
+                        whyReason = strategy
+                    )
+                } catch (e: Exception) {
+                    Log.e("CryptoViewModel", "Error opening MEXC Demo position: ${e.message}", e)
+                }
             }
             return true
         } else {
@@ -1384,7 +1395,7 @@ class CryptoViewModel(
     val isGeneratingAiInsights: StateFlow<Boolean> = _isGeneratingAiInsights.asStateFlow()
 
     fun generateAiOptimizationInsights() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _isGeneratingAiInsights.value = true
             _aiInsights.value = "Analyzing local databases, compiling equity curve telemetry..."
             try {

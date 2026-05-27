@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -271,6 +272,7 @@ fun MainDesktopDashboard(
             HeaderStatusBar(
                 isScanning = isScanning,
                 isKeyConfigured = viewModel.isModelKeyConfigured,
+                activeTabTitle = tabTitles[selectedTab],
                 onForceRefresh = { viewModel.forceFullRefresh() }
             )
 
@@ -402,6 +404,7 @@ fun MainDesktopDashboard(
 fun HeaderStatusBar(
     isScanning: Boolean,
     isKeyConfigured: Boolean,
+    activeTabTitle: String,
     onForceRefresh: () -> Unit
 ) {
     Column(
@@ -416,7 +419,7 @@ fun HeaderStatusBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "MARKET SCANNER",
+                text = activeTabTitle,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Black,
                 color = CyberAccentGreen,
@@ -560,6 +563,7 @@ fun ScannerLiveProgressOverlay(
     LaunchedEffect(logs.size) {
         if (logs.isNotEmpty()) {
             try {
+                kotlinx.coroutines.delay(50L)
                 lazyListState.scrollToItem(logs.size - 1)
             } catch (e: Exception) {
                 // Safely ignore scroll interruptions on content reset
@@ -915,7 +919,7 @@ fun ScannerMarketTab(
                     .testTag("scanned_coins_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(filteredCoins, key = { it.id }) { coin ->
+                itemsIndexed(filteredCoins, key = { index, coin -> "coin_${coin.id}_$index" }) { index, coin ->
                     val hasSignal = confirmedSignals.any { it.id == coin.id }
                     val currentSignal = confirmedSignals.find { it.id == coin.id }
 
@@ -1107,7 +1111,7 @@ fun ConfirmedSignalsTab(
                 .testTag("confirmed_signals_list"),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(signals, key = { it.id }) { signal ->
+            itemsIndexed(signals, key = { index, signal -> "signal_${signal.id}_$index" }) { index, signal ->
                 SignalTriggerCard(
                     viewModel = viewModel,
                     signal = signal,
@@ -1489,6 +1493,26 @@ fun TradeChartSpline(
 ) {
     val splineColor = if (isBuy) CyberAccentGreen else CyberAccentRed
     
+    // Cache the trend point fractions on signal ID/direction updates
+    val pointFractions = remember(signal.id, isBuy) {
+        val fractions = ArrayList<Offset>()
+        val pointsCount = 10
+        val seedString = signal.id
+        val charSum = seedString.sumOf { it.code }
+        val generator = java.util.Random(charSum.toLong())
+        val baselineOffset = if (isBuy) 0.6f else 0.4f
+
+        for (i in 0 until pointsCount) {
+            val xFraction = i.toFloat() / (pointsCount - 1).toFloat()
+            val floatVolatility = generator.nextFloat() * 0.35f
+            val sineMod = Math.sin(i.toDouble() * 1.2).toFloat() * 0.15f
+            val deltaTrend = if (isBuy) (i.toFloat() / pointsCount.toFloat()) * 0.3f else -(i.toFloat() / pointsCount.toFloat()) * 0.3f
+            val yFraction = (baselineOffset - deltaTrend + floatVolatility + sineMod).coerceIn(0.1f, 0.9f)
+            fractions.add(Offset(xFraction, yFraction))
+        }
+        fractions
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1500,27 +1524,10 @@ fun TradeChartSpline(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
             val height = size.height
-            val pointsCount = 10
+            if (width <= 0f || height <= 0f) return@Canvas
 
-            // Plot a realistic volatile curve
-            val points = ArrayList<Offset>()
-            // Generate deterministic curves using the coin's DB metrics as keys
-            val seedString = signal.id
-            val charSum = seedString.sumOf { it.code }
-            val generator = java.util.Random(charSum.toLong())
-
-            val baselineOffset = if (isBuy) 0.6f else 0.4f
-
-            for (i in 0 until pointsCount) {
-                val x = (width / (pointsCount - 1)) * i
-                val floatVolatility = generator.nextFloat() * 0.35f
-                val sineMod = Math.sin(i.toDouble() * 1.2).toFloat() * 0.15f
-                val deltaTrend = if (isBuy) (i.toFloat() / pointsCount.toFloat()) * 0.3f else -(i.toFloat() / pointsCount.toFloat()) * 0.3f
-                
-                val yFraction = baselineOffset - deltaTrend + floatVolatility + sineMod
-                val y = height * yFraction.coerceIn(0.1f, 0.9f)
-                points.add(Offset(x, y))
-            }
+            // Project fractions onto current canvas size
+            val points = pointFractions.map { Offset(it.x * width, it.y * height) }
 
             // Create Bezier Path
             val path = Path()
@@ -1598,203 +1605,471 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
             selectedStrategy = null
         }
     } else {
+        var directionFilter by remember { mutableStateOf("ALL") }
+        var conditionFilter by remember { mutableStateOf("ALL") }
+
         val blueprints = listOf(
             StrategyBlueprint(
                 title = "EMA Continuation Cross (V3)",
                 trend = "Bullish Outperformance",
                 metrics = "50 EMA / 200 EMA breakout threshold",
-                description = "Analyzes high-volume support consolidating slightly above the 50 Exponential Moving Average. On lower cap parameters, large liquidity pools accumulate positions, predicting immediate swing continuation."
-            ),
-            StrategyBlueprint(
-                title = "Volumetric Liquidity Sweep",
-                trend = "Bearish Exhaustion Rallies",
-                metrics = "Relative volume (RV) < 0.6 + Price spike > 8%",
-                description = "This strategy highlights rallies in thin-orderbook setups. Lower liquidity easily causes sharp, unsustainable upward spikes on extremely low volume, yielding high-probability, short-term reversion sweeps."
-            ),
-            StrategyBlueprint(
-                title = "Mean Reversion & Oversold Bounce",
-                trend = "Oversold Rebound Pivot",
-                metrics = "RSI-14 values < 25 + Daily retracement > -10%",
-                description = "Focuses on premium, high-utility projects suffering cascading liquidations. When capitalization areas hit support bottoms on exhausting volume, it triggers low-risk, high-velocity reverse-bounce plays."
-            ),
-            StrategyBlueprint(
-                title = "Wyckoff Spring & Phase C Accumulation",
-                trend = "Bullish Phase C Markup",
-                metrics = "Consolidation sweep + Volume > 1.8x average",
-                description = "Models structural market transitions by identifying early markup. Detects a quick downward flush (the 'Spring') that sweeps low liquidity stops, immediately followed by strong buying volume that reclaims the trading range, initiating a high-accuracy upward advance."
+                description = "Analyzes high-volume support consolidating slightly above the 50 Exponential Moving Average. On lower cap parameters, large liquidity pools accumulate positions, predicting immediate swing continuation.",
+                direction = "LONG",
+                marketCondition = "Trending",
+                premiumTag = "CTA Trend Engine"
             ),
             StrategyBlueprint(
                 title = "High-Volume Momentum Breakout",
                 trend = "Bullish Momentum Continuation",
                 metrics = "High 24h gain + Relative volume > 1.5",
-                description = "Capitalizes on momentum expansion above critical resistance envelopes. Sustained volume spikes signal high-density institutional flow, driving a strong momentum surge toward overhead liquidity levels. Highly effective for rapid trend riders."
+                description = "Capitalizes on momentum expansion above critical resistance envelopes. Sustained volume spikes signal high-density institutional flow, driving a strong momentum surge toward overhead liquidity levels. Highly effective for rapid trend riders.",
+                direction = "LONG",
+                marketCondition = "Trending",
+                premiumTag = "HFT Breakout Tracker"
+            ),
+            StrategyBlueprint(
+                title = "Order Flow Imbalance (FVG Recovery)",
+                trend = "Bullish Imbalance Rebound",
+                metrics = "Fair Value Gap touch + 0.5 discount level",
+                description = "Smart Money Concept (SMC) protocol. Monitors weekly and daily liquidity voids. Triggers buy limits upon algorithmic retests of inefficient price zones, predicting quick absorption and swift upwards re-pricing.",
+                direction = "LONG",
+                marketCondition = "Trending",
+                premiumTag = "SMC Imbalance Filler"
+            ),
+            StrategyBlueprint(
+                title = "Mean Reversion & Oversold Bounce",
+                trend = "Oversold Rebound Pivot",
+                metrics = "RSI-14 values < 25 + Daily retracement > -10%",
+                description = "Focuses on premium, high-utility projects suffering cascading liquidations. When capitalization areas hit support bottoms on exhausting volume, it triggers low-risk, high-velocity reverse-bounce plays.",
+                direction = "LONG",
+                marketCondition = "Choppy",
+                premiumTag = "Quant Reversion Engine"
+            ),
+            StrategyBlueprint(
+                title = "VWAP Deviation Band Mean Reversion",
+                trend = "Statistical Range Bottom",
+                metrics = "Price < -2.0 VWAP SD band expansion",
+                description = "Used extensively by institutional block desks. Identifies temporary asset dislocations from the volume-weighted average price in rangebound environments, forecasting swift return to mean equilibrium.",
+                direction = "LONG",
+                marketCondition = "Choppy",
+                premiumTag = "Statistical Arbitrage Core"
+            ),
+            StrategyBlueprint(
+                title = "Wyckoff Spring & Phase C Accumulation",
+                trend = "Bullish Phase C Markup",
+                metrics = "Consolidation sweep + Volume > 1.8x average",
+                description = "Models structural market transitions by identifying early markup. Detects a quick downward flush (the 'Spring') that sweeps low liquidity stops, immediately followed by strong buying volume that reclaims the trading range, initiating a high-accuracy upward advance.",
+                direction = "LONG",
+                marketCondition = "Sideways",
+                premiumTag = "Smart Money Concepts"
             ),
             StrategyBlueprint(
                 title = "Institutional Order Block Grab",
                 trend = "Bullish Order Reconstruction",
                 metrics = "Historical demand re-test + Volumetric support",
-                description = "Tracks historical institutional demand zones on 4-hour charts. When price touches a major discount order block, limit order clusters of massive size are triggered. This shields the trader with an exceptionally tight, low-risk stop-loss and premium entry precision."
+                description = "Tracks historical institutional demand zones on 4-hour charts. When price touches a major discount order block, limit order clusters of massive size are triggered. This shields the trader with an exceptionally tight, low-risk stop-loss and premium entry precision.",
+                direction = "LONG",
+                marketCondition = "Sideways",
+                premiumTag = "Hedge Fund Order Block"
             ),
             StrategyBlueprint(
                 title = "MACD Divergence & Momentum Exhaustion",
                 trend = "Bearish Multi-drive Divergence",
                 metrics = "Lower MACD highs + Higher Price highs",
-                description = "An early-warning indicator for structural trend reversals. Recognizes instances where the price presses new intraday highs but the MACD momentum histogram exhibits consecutive lower peaks, warning of severe upward exhaustion and highly profitable short pivots."
+                description = "An early-warning indicator for structural trend reversals. Recognizes instances where the price presses new intraday highs but the MACD momentum histogram exhibits consecutive lower peaks, warning of severe upward exhaustion and highly profitable short pivots.",
+                direction = "SHORT",
+                marketCondition = "Trending",
+                premiumTag = "Momentum Divergence Key"
+            ),
+            StrategyBlueprint(
+                title = "Parabolic Arc Breakdown Squeeze",
+                trend = "Bearish Trend Cascade",
+                metrics = "Parabolic slope leak + 20 SMA break",
+                description = "Detects systemic momentum failures in highly over-extended parabolics. Popularized by macro CTA desks, it triggers short-orders upon dynamic breakdown of steep price-trend relationships, targeting massive liquidity cascades.",
+                direction = "SHORT",
+                marketCondition = "Trending",
+                premiumTag = "Macro CTA Reversal"
+            ),
+            StrategyBlueprint(
+                title = "Volumetric Liquidity Sweep",
+                trend = "Bearish Exhaustion Rallies",
+                metrics = "Relative volume (RV) < 0.6 + Price spike > 8%",
+                description = "This strategy highlights rallies in thin-orderbook setups. Lower liquidity easily causes sharp, unsustainable upward spikes on extremely low volume, yielding high-probability, short-term reversion sweeps.",
+                direction = "SHORT",
+                marketCondition = "Choppy",
+                premiumTag = "Liquidity Sweep Capture"
+            ),
+            StrategyBlueprint(
+                title = "Funding Rate Arbitrage Squeeze",
+                trend = "Bearish Leverage Flusher",
+                metrics = "Funding > 0.12% per 8h + OI exhaustion",
+                description = "Exploits extreme retail leverage skew. Whenever funding costs skyrocket, it establishes short vectors to align with institutional market makers who hunt downstream leveraged stop-losses through rapid flush-outs.",
+                direction = "SHORT",
+                marketCondition = "Choppy",
+                premiumTag = "Leverage Arbitrage Alpha"
+            ),
+            StrategyBlueprint(
+                title = "Weekly Pivot Resistance Rejection",
+                trend = "Bearish Range Envelope",
+                metrics = "Weekly R2/R3 touches + Volume divergence",
+                description = "High-timeframe quantitative range play. Monitors the critical mathematical standard boundaries. Initiates scalp short entries upon decisive exhaustion candles rejecting weekly R2 or R3 pivot bands back toward range equilibrium.",
+                direction = "SHORT",
+                marketCondition = "Sideways",
+                premiumTag = "Pivot Theory Engine"
+            ),
+            StrategyBlueprint(
+                title = "Order Flow Overexpansion (Bearish FVG)",
+                trend = "Bearish Premium Selloff",
+                metrics = "Bearish Fair Value Gap fill + supply sweep",
+                description = "Applies SMC order block discipline on the short side. Detects rapid downside impulse zones and places sell limits directly inside the premium imbalance envelope, targeting the sweep of historic lows.",
+                direction = "SHORT",
+                marketCondition = "Sideways",
+                premiumTag = "SMC Imbalance Hunter"
             )
         )
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("blueprints_list"),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(blueprints) { setup ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = CyberCard),
-                    shape = RoundedCornerShape(24.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = setup.title,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Black,
-                                color = CyberTextWhite,
-                                letterSpacing = (-0.3).sp
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(CyberSlate)
-                                    .padding(horizontal = 10.dp, vertical = 5.dp)
-                            ) {
-                                Text(text = setup.trend, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberPercentColor(setup.trend))
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
+        val filteredBlueprints = blueprints.filter { bp ->
+            (directionFilter == "ALL" || bp.direction == directionFilter) &&
+            (conditionFilter == "ALL" || bp.marketCondition == conditionFilter)
+        }
+
+        Column(modifier = Modifier.fillMaxSize()) {
+            // CENTRAL FILTER DASHBOARD
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = CyberDark.copy(alpha = 0.6f)),
+                shape = RoundedCornerShape(16.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "QUANT-STRATEGY CONTROL CENTERS",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberGold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // DIRECTION FILTERS
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = "Trigger Threshold: ${setup.metrics}",
-                            fontSize = 10.sp,
+                            text = "DIRECTION:",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
                             fontFamily = FontFamily.Monospace,
-                            color = CyberGold,
-                            fontWeight = FontWeight.Bold
+                            modifier = Modifier.width(72.dp)
                         )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(text = setup.description, fontSize = 12.sp, color = CyberTextWhite, lineHeight = 18.sp)
-                        
-                        val lastResult = latestBacktestResults[setup.title]
-                        if (lastResult != null) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
-                                drawLine(
-                                    color = CyberSurface,
-                                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                    end = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                                    strokeWidth = 1.dp.toPx(),
-                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "LATEST BACKTEST PERFORMANCE",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = CyberGold,
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = 0.5.sp
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                // ROI
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            listOf("ALL" to "ALL DIRECTIONS", "LONG" to "LONG ONLY", "SHORT" to "SHORT ONLY").forEach { (code, label) ->
+                                val active = directionFilter == code
                                 Box(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .background(CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                        .padding(8.dp)
-                                ) {
-                                    Column {
-                                        Text("ROI", fontSize = 8.sp, color = CyberTextDim, fontWeight = FontWeight.Bold)
-                                        Text(
-                                            text = "${if (lastResult.roi >= 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", lastResult.roi)}%",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = if (lastResult.roi >= 0) Color(0xFF15803D) else CyberAccentRed
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (active) (if (code == "LONG") CyberAccentGreen.copy(alpha = 0.25f) else if (code == "SHORT") CyberAccentRed.copy(alpha = 0.25f) else CyberSurface) else CyberDark)
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (active) (if (code == "LONG") CyberAccentGreen else if (code == "SHORT") CyberAccentRed else CyberGold) else Color.Transparent,
+                                            shape = RoundedCornerShape(6.dp)
                                         )
-                                    }
-                                }
-                                // Win Rate
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .background(CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                        .padding(8.dp)
+                                        .clickable { directionFilter = code }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
                                 ) {
-                                    Column {
-                                        Text("WIN RATE", fontSize = 8.sp, color = CyberTextDim, fontWeight = FontWeight.Bold)
-                                        Text(
-                                            text = "${String.format(java.util.Locale.US, "%.1f", lastResult.winRate)}%",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = CyberTextWhite
-                                        )
-                                    }
-                                }
-                                // Drawdown
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .background(CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                                        .padding(8.dp)
-                                ) {
-                                    Column {
-                                        Text("MAX DD", fontSize = 8.sp, color = CyberTextDim, fontWeight = FontWeight.Bold)
-                                        Text(
-                                            text = "-${String.format(java.util.Locale.US, "%.1f", lastResult.maxDrawdown)}%",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = if (lastResult.maxDrawdown > 25.0) CyberAccentRed else CyberTextDim
-                                        )
-                                    }
+                                    Text(
+                                        text = label,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (active) CyberTextWhite else CyberTextDim,
+                                        fontFamily = FontFamily.Monospace
+                                    )
                                 }
                             }
                         }
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        Button(
-                            onClick = { selectedStrategy = setup },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = CyberAccentGreen,
-                                contentColor = Color.White
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp)
-                                .testTag("run_backtest_btn_${setup.title.replace(" ", "_").lowercase()}")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // MARKET PROFILE FILTERS
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "MARKET TYPE:",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.width(72.dp)
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Run Backtest",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "RUN BACKTEST SIMULATION",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            )
+                            listOf("ALL" to "ALL CONDITIONS", "Trending" to "TRENDING", "Choppy" to "CHOPPY", "Sideways" to "SIDEWAYS").forEach { (code, label) ->
+                                val active = conditionFilter == code
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (active) CyberSurface else CyberDark)
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (active) CyberGold else Color.Transparent,
+                                            shape = RoundedCornerShape(6.dp)
+                                        )
+                                        .clickable { conditionFilter = code }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (active) CyberTextWhite else CyberTextDim,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (filteredBlueprints.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = null,
+                            tint = CyberTextDim,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No strategies align with selected filters.",
+                            color = CyberTextDim,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .testTag("blueprints_list"),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(filteredBlueprints) { setup ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = CyberCard),
+                            shape = RoundedCornerShape(24.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+                        ) {
+                            Column(modifier = Modifier.padding(18.dp)) {
+                                // METADATA & DIRECTION BADGES
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = setup.title,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = CyberTextWhite,
+                                            letterSpacing = (-0.3).sp
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        // Dynamic Sub-Tagging Row
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            // 1. DIRECTION
+                                            Text(
+                                                text = if (setup.direction == "LONG") "▲ LONG" else "▼ SHORT",
+                                                color = if (setup.direction == "LONG") CyberAccentGreen else CyberAccentRed,
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 8.5.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            // Divider Dot
+                                            Box(modifier = Modifier.size(3.dp).background(CyberTextDim, CircleShape))
+                                            // 2. CONDITION
+                                            Text(
+                                                text = when (setup.marketCondition) {
+                                                    "Trending" -> "⚡ Trending"
+                                                    "Choppy" -> "≈ Choppy"
+                                                    else -> "↔ Sideways"
+                                                },
+                                                color = when (setup.marketCondition) {
+                                                    "Trending" -> Color(0xFF38BDF8)
+                                                    "Choppy" -> Color(0xFFF59E0B)
+                                                    else -> Color(0xFFA3A3A3)
+                                                },
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 8.5.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            // Divider Dot
+                                            Box(modifier = Modifier.size(3.dp).background(CyberTextDim, CircleShape))
+                                            // 3. CODE TAG
+                                            Text(
+                                                text = "★ ${setup.premiumTag}",
+                                                color = CyberGold,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 8.5.sp,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(CyberSlate)
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(text = setup.trend, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberPercentColor(setup.trend))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Trigger Threshold: ${setup.metrics}",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = CyberGold,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(text = setup.description, fontSize = 12.sp, color = CyberTextWhite, lineHeight = 18.sp)
+                                
+                                val lastResult = latestBacktestResults[setup.title]
+                                if (lastResult != null) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
+                                        drawLine(
+                                            color = CyberSurface,
+                                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                            end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                            strokeWidth = 1.dp.toPx(),
+                                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = "LATEST BACKTEST PERFORMANCE",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = CyberGold,
+                                        fontFamily = FontFamily.Monospace,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // ROI
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .background(CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                                .padding(8.dp)
+                                        ) {
+                                            Column {
+                                                Text("ROI", fontSize = 8.sp, color = CyberTextDim, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    text = "${if (lastResult.roi >= 0) "+" else ""}${String.format(java.util.Locale.US, "%.1f", lastResult.roi)}%",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = if (lastResult.roi >= 0) Color(0xFF15803D) else CyberAccentRed
+                                                )
+                                            }
+                                        }
+                                        // Win Rate
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .background(CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                                .padding(8.dp)
+                                        ) {
+                                            Column {
+                                                Text("WIN RATE", fontSize = 8.sp, color = CyberTextDim, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    text = "${String.format(java.util.Locale.US, "%.1f", lastResult.winRate)}%",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = CyberTextWhite
+                                                )
+                                            }
+                                        }
+                                        // Drawdown
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .background(CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                                                .padding(8.dp)
+                                        ) {
+                                            Column {
+                                                Text("MAX DD", fontSize = 8.sp, color = CyberTextDim, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    text = "-${String.format(java.util.Locale.US, "%.1f", lastResult.maxDrawdown)}%",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = if (lastResult.maxDrawdown > 25.0) CyberAccentRed else CyberTextDim
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                Button(
+                                    onClick = { selectedStrategy = setup },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = CyberAccentGreen,
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(44.dp)
+                                        .testTag("run_backtest_btn_${setup.title.replace(" ", "_").lowercase()}")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = "Run Backtest",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "RUN BACKTEST SIMULATION",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -2543,7 +2818,15 @@ fun EquityCurveChart(
     modifier: Modifier = Modifier
 ) {
     val cleanPoints = remember(points) {
-        points.filter { !it.isNaN() && !it.isInfinite() }
+        val rawFiltered = points.filter { !it.isNaN() && !it.isInfinite() }
+        if (rawFiltered.size > 50) {
+            val step = rawFiltered.size.toDouble() / 50.0
+            List(50) { i ->
+                rawFiltered[(i * step).toInt().coerceIn(0, rawFiltered.size - 1)]
+            }
+        } else {
+            rawFiltered
+        }
     }
     if (cleanPoints.size < 2) return
     
@@ -2598,7 +2881,7 @@ fun EquityCurveChart(
                 brush = Brush.verticalGradient(
                     colors = listOf(gradientColor, Color.Transparent),
                     startY = 0f,
-                    endY = height
+                    endY = if (height <= 0f) 1f else height
                 )
             )
             
@@ -2845,7 +3128,10 @@ data class StrategyBlueprint(
     val title: String,
     val trend: String,
     val metrics: String,
-    val description: String
+    val description: String,
+    val direction: String = "LONG",
+    val marketCondition: String = "Trending",
+    val premiumTag: String = "Institutional Strategy"
 )
 
 @Composable
@@ -3241,6 +3527,11 @@ fun formatLargeNumber(num: Double): String {
     }
 }
 
+fun formatEpochToDate(epochMs: Long): String {
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+    return sdf.format(java.util.Date(epochMs))
+}
+
 @Composable
 fun PaperTradingPortfolioTab(viewModel: CryptoViewModel) {
     val cashBalance by viewModel.cashBalance.collectAsState()
@@ -3458,7 +3749,7 @@ fun PaperTradingPortfolioTab(viewModel: CryptoViewModel) {
                     }
                 }
             } else {
-                items(openTrades, key = { it.id }) { trade ->
+                itemsIndexed(openTrades, key = { index, trade -> "open_${trade.id}_$index" }) { index, trade ->
                     OpenPositionCard(
                         trade = trade,
                         onCloseClick = { viewModel.closePaperTradeManually(trade) }
@@ -3500,7 +3791,7 @@ fun PaperTradingPortfolioTab(viewModel: CryptoViewModel) {
                     }
                 }
             } else {
-                items(closedTrades, key = { it.id }) { trade ->
+                itemsIndexed(closedTrades, key = { index, trade -> "closed_${trade.id}_$index" }) { index, trade ->
                     ClosedPositionCard(trade = trade)
                 }
             }
@@ -3984,12 +4275,18 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
 
     val blueprints = listOf(
         "EMA Continuation Cross (V3)",
-        "Volumetric Liquidity Sweep",
-        "Mean Reversion & Oversold Bounce",
-        "Wyckoff Spring & Phase C Accumulation",
         "High-Volume Momentum Breakout",
+        "Order Flow Imbalance (FVG Recovery)",
+        "Mean Reversion & Oversold Bounce",
+        "VWAP Deviation Band Mean Reversion",
+        "Wyckoff Spring & Phase C Accumulation",
         "Institutional Order Block Grab",
-        "MACD Divergence & Momentum Exhaustion"
+        "MACD Divergence & Momentum Exhaustion",
+        "Parabolic Arc Breakdown Squeeze",
+        "Volumetric Liquidity Sweep",
+        "Funding Rate Arbitrage Squeeze",
+        "Weekly Pivot Resistance Rejection",
+        "Order Flow Overexpansion (Bearish FVG)"
     )
 
     var maxTradesInput by remember { mutableStateOf(botMaxTrades.toString()) }
@@ -5756,9 +6053,19 @@ fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
     }
 
     val blueprints = listOf(
-        "EMA Continuation Cross (V3)", "Volumetric Liquidity Sweep", "Mean Reversion & Oversold Bounce",
-        "Wyckoff Spring & Phase C Accumulation", "High-Volume Momentum Breakout", "Institutional Order Block Grab",
-        "MACD Divergence & Momentum Exhaustion"
+        "EMA Continuation Cross (V3)",
+        "High-Volume Momentum Breakout",
+        "Order Flow Imbalance (FVG Recovery)",
+        "Mean Reversion & Oversold Bounce",
+        "VWAP Deviation Band Mean Reversion",
+        "Wyckoff Spring & Phase C Accumulation",
+        "Institutional Order Block Grab",
+        "MACD Divergence & Momentum Exhaustion",
+        "Parabolic Arc Breakdown Squeeze",
+        "Volumetric Liquidity Sweep",
+        "Funding Rate Arbitrage Squeeze",
+        "Weekly Pivot Resistance Rejection",
+        "Order Flow Overexpansion (Bearish FVG)"
     )
 
     LazyColumn(
@@ -6400,7 +6707,7 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                     }
                 }
             } else {
-                items(mexcOpenTrades, key = { it.id }) { tr ->
+                itemsIndexed(mexcOpenTrades, key = { index, tr -> "mexc_open_${tr.id}_$index" }) { index, tr ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = CyberCard),
@@ -6483,7 +6790,7 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                     }
                 }
             } else {
-                items(mexcClosedTrades, key = { it.id }) { tr ->
+                itemsIndexed(mexcClosedTrades, key = { index, tr -> "mexc_closed_${tr.id}_$index" }) { index, tr ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = CyberCard),
@@ -6578,9 +6885,102 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
     }
 }
 
+fun buildDetailedShareReport(
+    trades: List<PaperTrade>,
+    winRate: Double,
+    totalPnl: Double,
+    maxDrawdown: Double,
+    avgRR: Double,
+    bestStrategy: String,
+    bestCoin: String,
+    directionPnl: Pair<Double, Double>,
+    aiInsights: String
+): String {
+    val sb = java.lang.StringBuilder()
+    sb.append("📊 *QUANTITATIVE STRATEGY METRICS & ANALYSIS REPORT* 📊\n")
+    sb.append("=========================\n\n")
+    sb.append("📈 *CORE PERFORMANCE STATISTICS*:\n")
+    sb.append("• Total Transactions: ${trades.size} trades\n")
+    val wins = trades.filter { it.pnl > 0.0 }.size
+    val losses = trades.filter { it.pnl <= 0.0 }.size
+    sb.append("• Win / Loss: $wins W - $losses L (Win Rate: ${String.format(java.util.Locale.US, "%.1f", winRate)}%)\n")
+    sb.append("• Net Cumulative P&L: \$${String.format(java.util.Locale.US, "%.2f", totalPnl)} USDT\n")
+    sb.append("• Max Portfolio Drawdown: \$${String.format(java.util.Locale.US, "%.2f", maxDrawdown)} USD\n")
+    sb.append("• Average Risk-To-Reward Expectancy: ${String.format(java.util.Locale.US, "%.2f", avgRR)}:1\n")
+    sb.append("• Optimal Active Strategy: $bestStrategy\n")
+    sb.append("• Top Performer Asset: $bestCoin\n")
+    sb.append("• Longs cumulative P&L: \$${String.format(java.util.Locale.US, "%.2f", directionPnl.first)} USDT\n")
+    sb.append("• Shorts cumulative P&L: \$${String.format(java.util.Locale.US, "%.2f", directionPnl.second)} USDT\n")
+    sb.append("\n")
+    
+    if (aiInsights.isNotBlank() && !aiInsights.contains("Analyzing local databases")) {
+        sb.append("🧠 *AI DECISION ADVISORY & STRATEGY CRUNCH*:\n")
+        val cleanInsights = aiInsights.replace(Regex("<[^>]*>"), "")
+        sb.append(if (cleanInsights.length > 500) cleanInsights.take(500) + "..." else cleanInsights)
+        sb.append("\n\n")
+    }
+    
+    sb.append("📋 *SYSTEMATIC HISTORICAL TRANSACTION LOGS JOURNAL*:\n")
+    sb.append("-------------------------\n")
+    trades.forEachIndexed { idx, tr ->
+        val statusEmoji = when {
+            tr.status == "OPEN" -> "⏳"
+            tr.pnl > 0.0 -> "🟢"
+            else -> "🔴"
+        }
+        val pnlSign = if (tr.pnl >= 0.0) "+" else ""
+        val pnlPct = if (tr.entryPrice > 0.0) {
+            ((tr.exitPrice ?: tr.currentPrice) - tr.entryPrice) / tr.entryPrice * 100.0 * (if (tr.signalType == "LONG") 1.0 else -1.0)
+        } else 0.0
+        val cleanPnlPctVal = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct
+        val pnlPctSign = if (cleanPnlPctVal >= 0.0) "+" else ""
+        
+        sb.append("${idx + 1}. $statusEmoji *[${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType})* - ${tr.status}\n")
+        sb.append("   • Strategy: ${tr.strategy}\n")
+        sb.append("   • Entry Price: \$${String.format(java.util.Locale.US, "%.4f", tr.entryPrice)} | Exit/Current Price: \$${String.format(java.util.Locale.US, "%.4f", tr.exitPrice ?: tr.currentPrice)}\n")
+        sb.append("   • Risk Parameters: SL: \$${String.format(java.util.Locale.US, "%.4f", tr.stopLoss)} | TP: \$${String.format(java.util.Locale.US, "%.4f", tr.takeProfit)}\n")
+        sb.append("   • Net Log P&L: $pnlSign\$${String.format(java.util.Locale.US, "%.2f", tr.pnl)} USDT ($pnlPctSign${String.format(java.util.Locale.US, "%.1f", cleanPnlPctVal)}%)\n")
+        sb.append("   • Leverage / Type: ${tr.leverage}x | Size: \$${String.format(java.util.Locale.US, "%.1f", tr.investedAmount)}\n")
+        sb.append("   • Strategy Telemetry: Captured RSI: ${String.format(java.util.Locale.US, "%.1f", tr.rsi)} | Volatility: ${String.format(java.util.Locale.US, "%.1f", tr.volatility * 100.0)}% | Trend: ${tr.trend}\n")
+        sb.append("   • Trade Rationale: ${tr.whyTradeReason.ifBlank { "Executed upon dynamic signal breakout validation." }}\n")
+        sb.append("   • Timestamp: ${formatEpochToDate(tr.timestamp)}\n")
+        sb.append("-------------------------\n")
+    }
+    sb.append("\n*Crypto Analytics Telemetry securely compiled & synced.*")
+    return sb.toString()
+}
+
+fun shareToWhatsApp(context: android.content.Context, reportText: String) {
+    try {
+        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_TEXT, reportText)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            val whatsappIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                `package` = "com.whatsapp"
+                putExtra(android.content.Intent.EXTRA_TEXT, reportText)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(whatsappIntent)
+        } catch (e: Exception) {
+            val chooser = android.content.Intent.createChooser(shareIntent, "Share Strategy Audit Report").apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+            android.widget.Toast.makeText(context, "WhatsApp not installed. Opened standard sharing.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Unable to perform share operation: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
 @Composable
 fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
     val allTransactions by viewModel.closedTrades.collectAsState()
+    val allTradesList by viewModel.allTransactionsList.collectAsState()
     val aiInsights by viewModel.aiInsights.collectAsState()
     val isGeneratingAi by viewModel.isGeneratingAiInsights.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -6593,6 +6993,10 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
     var selectedExchangeFilter by remember { mutableStateOf("ALL") }
     var selectedDirectionFilter by remember { mutableStateOf("ALL") }
     var exportStatusText by remember { mutableStateOf("") }
+
+    // Logs Journal Specific State
+    var logSearchQuery by remember { mutableStateOf("") }
+    var logStatusFilter by remember { mutableStateOf("ALL") } // "ALL", "OPEN", "CLOSED"
 
     // Dynamic Filter Options
     val listStrategies = remember(allTransactions) {
@@ -6608,12 +7012,33 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
     // Filtered trades
     val filteredTrades = remember(allTransactions, selectedStrategyFilter, selectedCoinFilter, selectedTimeframeFilter, selectedExchangeFilter, selectedDirectionFilter) {
         allTransactions.filter { tr ->
-            val matchStrat = selectedStrategyFilter == "ALL" || tr.strategy == selectedStrategyFilter
-            val matchCoin = selectedCoinFilter == "ALL" || tr.symbol.uppercase() == selectedCoinFilter
-            val matchTf = selectedTimeframeFilter == "ALL" || tr.timeframe == selectedTimeframeFilter
-            val matchEx = selectedExchangeFilter == "ALL" || tr.exchange == selectedExchangeFilter
-            val matchDir = selectedDirectionFilter == "ALL" || tr.signalType == selectedDirectionFilter
+            val matchStrat = selectedStrategyFilter == "ALL" || (tr.strategy ?: "").uppercase() == selectedStrategyFilter.uppercase()
+            val matchCoin = selectedCoinFilter == "ALL" || (tr.symbol ?: "").uppercase() == selectedCoinFilter.uppercase()
+            val matchTf = selectedTimeframeFilter == "ALL" || (tr.timeframe ?: "") == selectedTimeframeFilter
+            val matchEx = selectedExchangeFilter == "ALL" || (tr.exchange ?: "") == selectedExchangeFilter
+            val matchDir = selectedDirectionFilter == "ALL" || (tr.signalType ?: "") == selectedDirectionFilter
             matchStrat && matchCoin && matchTf && matchEx && matchDir
+        }
+    }
+
+    // Filtered Logs list specifically
+    val filteredLogs = remember(allTradesList, logSearchQuery, logStatusFilter, selectedStrategyFilter, selectedCoinFilter, selectedTimeframeFilter, selectedExchangeFilter, selectedDirectionFilter) {
+        allTradesList.filter { tr ->
+            val symbolSafe = (tr.symbol ?: "").uppercase()
+            val strategySafe = (tr.strategy ?: "").uppercase()
+            val matchesSearch = symbolSafe.contains(logSearchQuery.trim().uppercase()) ||
+                    strategySafe.contains(logSearchQuery.trim().uppercase())
+            val matchesStatus = when (logStatusFilter) {
+                "OPEN" -> (tr.status ?: "") == "OPEN"
+                "CLOSED" -> (tr.status ?: "") != "OPEN"
+                else -> true
+            }
+            val matchStrat = selectedStrategyFilter == "ALL" || (tr.strategy ?: "").uppercase() == selectedStrategyFilter.uppercase()
+            val matchCoin = selectedCoinFilter == "ALL" || (tr.symbol ?: "").uppercase() == selectedCoinFilter.uppercase()
+            val matchTf = selectedTimeframeFilter == "ALL" || (tr.timeframe ?: "") == selectedTimeframeFilter
+            val matchEx = selectedExchangeFilter == "ALL" || (tr.exchange ?: "") == selectedExchangeFilter
+            val matchDir = selectedDirectionFilter == "ALL" || (tr.signalType ?: "") == selectedDirectionFilter
+            matchesSearch && matchesStatus && matchStrat && matchCoin && matchTf && matchEx && matchDir
         }
     }
 
@@ -7030,6 +7455,371 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
             }
         }
 
+        // --- DETAILED HISTORICAL TRANSACTION LOGS JOURNAL ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text(
+                        text = "⚡ DETAILED HISTORICAL TRANSACTION JOURNAL",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberGold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "Real-time capture of every active/closed market entry parameter, technical indicator, and strategy rationale.",
+                        fontSize = 9.sp,
+                        color = CyberTextDim
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Filter bar: SEARCH INPUT
+                    androidx.compose.material3.OutlinedTextField(
+                        value = logSearchQuery,
+                        onValueChange = { logSearchQuery = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("log_search_text_input"),
+                        placeholder = { Text("Search by symbol (e.g. BTC) or strategy...", color = CyberTextDim.copy(alpha = 0.5f), fontSize = 11.sp) },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = CyberGold,
+                            unfocusedBorderColor = CyberSurface,
+                            focusedContainerColor = CyberDark,
+                            unfocusedContainerColor = CyberDark
+                        )
+                    )
+                    
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    // Filter row: STATUS SELECTOR (ALL, OPEN, CLOSED)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("STATUS:", fontSize = 8.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                        listOf("ALL", "OPEN", "CLOSED").forEach { status ->
+                            val isSel = logStatusFilter == status
+                            Box(
+                                modifier = Modifier
+                                    .background(if (isSel) CyberAccentGreen else CyberDark, RoundedCornerShape(4.dp))
+                                    .border(1.dp, if (isSel) CyberAccentGreen else CyberSurface, RoundedCornerShape(4.dp))
+                                    .clickable { logStatusFilter = status }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = status,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSel) CyberDark else CyberTextWhite,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.weight(1f))
+                        
+                        // Counter text
+                        Text(
+                            text = "${filteredLogs.size} MATCHES",
+                            fontSize = 8.sp,
+                            color = CyberGold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+
+        if (filteredLogs.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = CyberDark),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "⚡ NO LOGGED MATCHES DISCOVERED",
+                            fontSize = 10.sp,
+                            color = CyberTextDim,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        } else {
+            // Render each log entry as an individual item with a composite unique key to prevent any duplicate key crashes
+            itemsIndexed(filteredLogs, key = { index, tr -> "log_${tr.id}_$index" }) { index, tr ->
+                var isExpanded by remember { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isExpanded = !isExpanded }
+                        .testTag("log_trade_card_${tr.id}"),
+                    colors = CardDefaults.cardColors(containerColor = CyberCard),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isExpanded) CyberGold.copy(alpha = 0.5f) else CyberSurface)
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        // Header row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (tr.signalType == "LONG") CyberAccentGreen.copy(alpha = 0.15f)
+                                            else CyberAccentRed.copy(alpha = 0.15f),
+                                            RoundedCornerShape(4.dp)
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = tr.signalType,
+                                        color = if (tr.signalType == "LONG") CyberAccentGreen else CyberAccentRed,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Black,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = tr.symbol.uppercase(),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberTextWhite,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            
+                            // Status Badge
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        when (tr.status) {
+                                            "OPEN" -> CyberGold.copy(alpha = 0.15f)
+                                            "CLOSED_TP" -> CyberAccentGreen.copy(alpha = 0.15f)
+                                            "CLOSED_SL" -> CyberAccentRed.copy(alpha = 0.15f)
+                                            else -> Color(0xFF38BDF8).copy(alpha = 0.15f)
+                                        },
+                                        RoundedCornerShape(4.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = tr.status,
+                                    color = when (tr.status) {
+                                        "OPEN" -> CyberGold
+                                        "CLOSED_TP" -> CyberAccentGreen
+                                        "CLOSED_SL" -> CyberAccentRed
+                                        else -> Color(0xFF38BDF8)
+                                    },
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        
+                        // Sub-info row: Strategy name and exchange
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = tr.strategy,
+                                color = CyberTextDim,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                modifier = Modifier.weight(0.7f)
+                            )
+                            Text(
+                                text = tr.exchange,
+                                color = CyberGold.copy(alpha = 0.7f),
+                                fontSize = 8.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.weight(0.3f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.End
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        
+                        // Prices & PnL row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Left side: Prices
+                            Column {
+                                Text("ENTRY / CURRENT", fontSize = 7.sp, color = CyberTextDim)
+                                Text(
+                                    text = "$${formatPrice(tr.entryPrice)} / $${formatPrice(tr.exitPrice ?: tr.currentPrice)}",
+                                    fontSize = 10.sp,
+                                    color = CyberTextWhite,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            
+                            // Right side: Realized/Unrealized PnL
+                            Column(horizontalAlignment = Alignment.End) {
+                                val pnlPct = if (tr.entryPrice > 0.0) {
+                                    ((tr.exitPrice ?: tr.currentPrice) - tr.entryPrice) / tr.entryPrice * 100.0 * (if (tr.signalType == "LONG") 1.0 else -1.0)
+                                } else 0.0
+                                val cleanPnlPctVal = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct
+                                val sign = if (tr.pnl > 0.0) "+" else ""
+                                val signPct = if (cleanPnlPctVal >= 0.0) "+" else ""
+                                
+                                Text(
+                                    text = if (tr.status == "OPEN") "UNREALIZED P&L" else "REALIZED P&L",
+                                    fontSize = 7.sp,
+                                    color = CyberTextDim
+                                )
+                                Text(
+                                    text = "$sign$${formatCurrency(tr.pnl)} ($signPct${String.format(java.util.Locale.US, "%.2f", cleanPnlPctVal)}%)",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (tr.pnl > 0.0) CyberAccentGreen else if (tr.pnl < 0.0) CyberAccentRed else CyberTextWhite,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                        
+                        // Expandable details block
+                        if (isExpanded) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            androidx.compose.material3.Divider(color = CyberSurface, thickness = 1.dp)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            // Grid of 4 parameter fields
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("📐 RISK-REWARD", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    Text("1 : ${String.format(java.util.Locale.US, "%.1f", tr.riskRewardRatio)}", fontSize = 9.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("🔮 RSI Indicator", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    Text("${String.format(java.util.Locale.US, "%.1f", tr.rsi)}", fontSize = 9.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("📊 VOLATILITY", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    Text("${String.format(java.util.Locale.US, "%.2f", tr.volatility * 100.0)}%", fontSize = 9.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("⚡ ENTRY VOLUME", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    Text("$${formatLargeNumber(tr.volume)}", fontSize = 9.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("📈 TREND TREND", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    Text(tr.trend, fontSize = 9.sp, color = if (tr.trend == "UPTREND") CyberAccentGreen else if (tr.trend == "DOWNTREND") CyberAccentRed else CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text("⏱️ TF / LEVERAGE", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    Text("${tr.timeframe} | ${tr.leverage}x", fontSize = 9.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            // Stop Loss & Take Profit limits
+                            Row(
+                                modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(6.dp)).padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column {
+                                    Text("STOP LOSS LIMIT TRIGGER", fontSize = 7.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.stopLoss)}", fontSize = 9.sp, color = CyberAccentRed, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("TAKE PROFIT TARGET LIMIT", fontSize = 7.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.takeProfit)}", fontSize = 9.sp, color = CyberAccentGreen, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            // Why trade reason of execution
+                            Text("📋 STRATEGIC JOURNAL RATIONALE NOTES", fontSize = 7.sp, color = CyberTextDim)
+                            Text(
+                                text = tr.whyTradeReason.ifBlank { "Executed automatically by the core strategy bot engine upon signal breakout match." },
+                                fontSize = 9.sp,
+                                color = CyberTextWhite,
+                                lineHeight = 13.sp,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+                            
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            // Dynamic timestamp info
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("ENTRY: ${formatEpochToDate(tr.timestamp)}", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    if (tr.exitTimestamp != null) {
+                                        Text("EXIT: ${formatEpochToDate(tr.exitTimestamp)}", fontSize = 7.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                                
+                                // Direct WhatsApp button for specific trade
+                                Button(
+                                    onClick = {
+                                        val singlePnlPct = if (tr.entryPrice > 0.0) {
+                                            ((tr.exitPrice ?: tr.currentPrice) - tr.entryPrice) / tr.entryPrice * 100.0 * (if (tr.signalType == "LONG") 1.0 else -1.0)
+                                        } else 0.0
+                                        val statusEmoji = if (tr.status == "OPEN") "⏳" else if (tr.pnl > 0.0) "🟢" else "🔴"
+                                        val singleReport = """
+                                            📱 *SINGLE TRADE TELEMETRY REPORT* 📱
+                                            $statusEmoji *[${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType})* - ${tr.status}
+                                            
+                                            • Strategy: ${tr.strategy}
+                                            • Entry Price: $$tr.entryPrice
+                                            • Exit/Current Price: $${tr.exitPrice ?: tr.currentPrice}
+                                            • Limits: SL: $tr.stopLoss | TP: $tr.takeProfit
+                                            • P&L: $${tr.pnl} USDT (${String.format(java.util.Locale.US, "%+.2f", singlePnlPct)}%)
+                                            • Leverage: ${tr.leverage}x | Size: $${tr.investedAmount}
+                                            • RSI: ${String.format(java.util.Locale.US, "%.1f", tr.rsi)} | Volatility: ${String.format(java.util.Locale.US, "%.1f", tr.volatility * 100.0)}% | Trend: ${tr.trend}
+                                            • Rationale: ${tr.whyTradeReason.ifBlank { "Executed based on quantitative indicators." }}
+                                            • Log Entry Time: ${formatEpochToDate(tr.timestamp)}
+                                        """.trimIndent()
+                                        shareToWhatsApp(context, singleReport)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)), // WhatsApp elegant green
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Text("SHARE TRADE 💬", fontSize = 8.sp, color = Color.White, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = "▶ Tap log message to expand strategic telemetry indicators & reasoning.",
+                                fontSize = 7.sp,
+                                color = CyberGold.copy(alpha = 0.5f),
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // --- Export reports tools card ---
         item {
             Card(
@@ -7039,8 +7829,8 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                 border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("DATA EXPORT ENGINE", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
-                    Text("Export trade historical logs to standardized CSV files to load into Excel.", fontSize = 9.sp, color = CyberTextDim)
+                    Text("DATA EXPORT ENGINE & SHARING", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Text("Export trade historical logs to standardized CSV files or share deep audit reports.", fontSize = 9.sp, color = CyberTextDim)
                     
                     Spacer(modifier = Modifier.height(12.dp))
                     
@@ -7086,7 +7876,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                                 sb.append("=== TRADING BOT METRICS REPORT ===\n")
                                 filteredTrades.forEach { tr ->
                                     val statusSym = if (tr.pnl > 0.0) "🟢" else "🔴"
-                                    sb.append("$statusSym [${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType}) | EP: ${tr.entryPrice} SL: ${tr.stopLoss} TP: ${tr.takeProfit} | Gain/Loss: $${String.format(java.util.Locale.US, "%.2f", tr.pnl)} | Strategy: ${tr.strategy}\n")
+                                    sb.append("$statusSym [${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType}) | EP: ${tr.entryPrice} SL: ${tr.stopLoss} TP: ${tr.takeProfit} | Gain/Loss: \$${String.format(java.util.Locale.US, "%.2f", tr.pnl)} | Strategy: ${tr.strategy}\n")
                                 }
                                 clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(sb.toString()))
                                 exportStatusText = "🟢 Successfully copied telemetry data report to clipboard!"
@@ -7098,6 +7888,33 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                             Text("COPY DATA REPORT", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
                         }
                     }
+
+                    // Direct WhatsApp full report sharing button
+                    Button(
+                        onClick = {
+                            if (filteredTrades.isEmpty()) {
+                                exportStatusText = "❌ No trades to share."
+                                return@Button
+                            }
+                            val reportText = buildDetailedShareReport(
+                                trades = filteredTrades,
+                                winRate = winRate,
+                                totalPnl = totalRealized,
+                                maxDrawdown = maxDrawdown,
+                                avgRR = safeRR,
+                                bestStrategy = bestStrategyName,
+                                bestCoin = bestCoinName,
+                                directionPnl = directionPnl,
+                                aiInsights = aiInsights
+                            )
+                            shareToWhatsApp(context, reportText)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)), // WhatsApp Green
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+                    ) {
+                        Text("💬 SHARE REPORT TO WHATSAPP", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
+                    }
                 }
             }
         }
@@ -7106,17 +7923,38 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
 
 @Composable
 fun CyberEquityCurveCanvas(trades: List<PaperTrade>) {
-    var accumulated = 0.0
-    val dataPoints = mutableListOf<Float>()
-    dataPoints.add(0f)
-    trades.sortedBy { it.exitTimestamp ?: it.timestamp }.forEach { tr ->
-        accumulated += tr.pnl
-        dataPoints.add(accumulated.toFloat())
+    val curveData = remember(trades) {
+        var accumulated = 0.0
+        val rawDataPoints = mutableListOf<Float>()
+        rawDataPoints.add(0f)
+        trades.sortedBy { it.exitTimestamp ?: it.timestamp }.forEach { tr ->
+            val safePnL = if (tr.pnl.isNaN() || tr.pnl.isInfinite()) 0.0 else tr.pnl
+            accumulated += safePnL
+            rawDataPoints.add(accumulated.toFloat())
+        }
+        
+        val rawFiltered = rawDataPoints.filter { !it.isNaN() && !it.isInfinite() }
+        
+        // Downsample to a maximum of 50 points to prevent layout/drawing performance drops and system process terminations
+        val dataPoints = if (rawFiltered.size > 50) {
+            val step = rawFiltered.size.toDouble() / 50.0
+            List(50) { i ->
+                rawFiltered[(i * step).toInt().coerceIn(0, rawFiltered.size - 1)]
+            }
+        } else {
+            rawFiltered
+        }
+        
+        val maxP = dataPoints.maxOrNull()?.coerceAtLeast(10f) ?: 10f
+        val minP = dataPoints.minOrNull()?.coerceAtMost(-10f) ?: -10f
+        val range = (maxP - minP).coerceAtLeast(1f)
+        
+        Triple(dataPoints, range, Pair(minP, maxP))
     }
-    
-    val maxP = dataPoints.maxOrNull()?.coerceAtLeast(10f) ?: 10f
-    val minP = dataPoints.minOrNull()?.coerceAtMost(-10f) ?: -10f
-    val range = (maxP - minP).coerceAtLeast(1f)
+
+    val dataPoints = curveData.first
+    val range = curveData.second
+    val minP = curveData.third.first
 
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(160.dp).background(CyberDark, RoundedCornerShape(12.dp)).padding(8.dp)) {
         val width = size.width
@@ -7140,14 +7978,17 @@ fun CyberEquityCurveCanvas(trades: List<PaperTrade>) {
             val path = androidx.compose.ui.graphics.Path()
             val fillPath = androidx.compose.ui.graphics.Path()
             
-            val firstY = height - ((dataPoints[0] - minP) / range * height)
+            val rawFirstY = height - ((dataPoints[0] - minP) / range * height)
+            val firstY = if (rawFirstY.isNaN() || rawFirstY.isInfinite()) height / 2f else rawFirstY.coerceIn(0f, height)
+            
             path.moveTo(0f, firstY)
             fillPath.moveTo(0f, height)
             fillPath.lineTo(0f, firstY)
             
             for (idx in 1 until dataPoints.size) {
                 val valX = idx * stepX
-                val valY = height - ((dataPoints[idx] - minP) / range * height)
+                val rawY = height - ((dataPoints[idx] - minP) / range * height)
+                val valY = if (rawY.isNaN() || rawY.isInfinite()) height / 2f else rawY.coerceIn(0f, height)
                 path.lineTo(valX, valY)
                 fillPath.lineTo(valX, valY)
             }
@@ -7173,7 +8014,8 @@ fun CyberEquityCurveCanvas(trades: List<PaperTrade>) {
             // Draw dots at peak points
             for (idx in dataPoints.indices) {
                 val valX = idx * stepX
-                val valY = height - ((dataPoints[idx] - minP) / range * height)
+                val rawY = height - ((dataPoints[idx] - minP) / range * height)
+                val valY = if (rawY.isNaN() || rawY.isInfinite()) height / 2f else rawY.coerceIn(0f, height)
                 drawCircle(
                     color = if (dataPoints[idx] >= 0) CyberAccentGreen else CyberAccentRed,
                     radius = 5f,
