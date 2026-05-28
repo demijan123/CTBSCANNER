@@ -370,16 +370,15 @@ fun MainDesktopDashboard(
     val latestBacktestResults = remember { mutableStateMapOf<String, SimulationResult>() }
     val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "AUTO BOT", "PAPER TRADING", "MEXC CONFIG", "MEXC DEMO TRADES", "MEXC LIVE TRADES", "TRADE ANALYTICS")
     var selectedCoinForDetails by remember { mutableStateOf<Coin?>(null) }
+    var showExitNotice by remember { mutableStateOf(false) }
 
-    val context = androidx.compose.ui.platform.LocalContext.current
     androidx.activity.compose.BackHandler(enabled = true) {
         if (selectedCoinForDetails != null) {
             selectedCoinForDetails = null
         } else if (selectedTab != 0) {
             selectedTab = 0
         } else {
-            // Consumed on root screen back press to keep the activity alive and avoid InputDispatcher closure logs in testing/emulator environments.
-            android.util.Log.d("MainActivity", "Back press consumed at home tab root to maintain input channel continuity.")
+            showExitNotice = true
         }
     }
 
@@ -528,6 +527,48 @@ fun MainDesktopDashboard(
                 coin = coin,
                 onDismiss = { selectedCoinForDetails = null }
             )
+        }
+
+        if (showExitNotice) {
+            LaunchedEffect(showExitNotice) {
+                kotlinx.coroutines.delay(3000L)
+                showExitNotice = false
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 60.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Card(
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .border(1.dp, CyberAccentGreen, RoundedCornerShape(8.dp)),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = CardDefaults.cardColors(containerColor = CyberCard.copy(alpha = 0.95f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Active Status",
+                            tint = CyberAccentGreen,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "TERMINAL ONLINE • Session remains active in background.",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextWhite,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
