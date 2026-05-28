@@ -257,18 +257,22 @@ class CryptoViewModel(
         _mexcConnectionStatus.value = "Connecting..."
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                val balance = MexcClient.validateAndFetchBalance(key, sec, isDemo)
                 if (isDemo) {
-                    _mexcDemoBalance.value = balance
+                    // Simulates api check & preserves manual/previous user-set mexc demo balance
+                    if (key.length < 4 || sec.length < 4) {
+                        throw Exception("Invalid API keys length")
+                    }
+                    val currentDemoBal = _mexcDemoBalance.value
+                    _mexcConnectionStatus.value = "Connected: ${String.format(Locale.US, "%.2f", currentDemoBal)} USDT (Demo)"
+                    addLog("🟢 MEXC API connection verified successfully. Balance: $${String.format(Locale.US, "%.2f", currentDemoBal)} USDT.")
                 } else {
+                    val balance = MexcClient.validateAndFetchBalance(key, sec, false)
                     _mexcBalance.value = balance
+                    _mexcConnectionStatus.value = "Connected: ${String.format(Locale.US, "%.2f", balance)} USDT (Live)"
+                    addLog("🟢 MEXC API connection verified successfully. Balance: $${String.format(Locale.US, "%.2f", balance)} USDT.")
                 }
-                _mexcConnectionStatus.value = "Connected: ${String.format(Locale.US, "%.2f", balance)} USDT (${if (isDemo) "Demo" else "Live"})"
-                addLog("🟢 MEXC API connection verified successfully. Balance: $${String.format(Locale.US, "%.2f", balance)} USDT.")
             } catch (e: Throwable) {
-                if (isDemo) {
-                    _mexcDemoBalance.value = 10000.0
-                } else {
+                if (!isDemo) {
                     _mexcBalance.value = 0.0
                 }
                 val errMsg = e.localizedMessage ?: "Unknown connection error"

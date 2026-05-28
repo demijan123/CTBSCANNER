@@ -4495,12 +4495,16 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
         "Order Flow Overexpansion (Bearish FVG)"
     )
 
+    val mexcDemoBalance by viewModel.mexcDemoBalance.collectAsState()
+
     var maxTradesInput by remember { mutableStateOf(botMaxTrades.toString()) }
     var tradeSizeInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.0f", botTradeSize)) }
+    var botDemoBalanceInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.0f", mexcDemoBalance)) }
 
-    LaunchedEffect(botMaxTrades, botTradeSize) {
+    LaunchedEffect(botMaxTrades, botTradeSize, mexcDemoBalance) {
         maxTradesInput = botMaxTrades.toString()
         tradeSizeInput = String.format(java.util.Locale.US, "%.0f", botTradeSize)
+        botDemoBalanceInput = String.format(java.util.Locale.US, "%.0f", mexcDemoBalance)
     }
 
     LazyColumn(
@@ -4585,9 +4589,26 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "$${formatCurrency(cashBalance)}",
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Black,
                                 color = CyberTextWhite
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                "MEXC DEMO BALANCE",
+                                fontSize = 8.sp,
+                                color = CyberTextDim,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "$${formatCurrency(mexcDemoBalance)}",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black,
+                                color = CyberAccentGreen
                             )
                         }
 
@@ -4602,7 +4623,7 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "${openTrades.size} / $botMaxTrades Positions",
-                                fontSize = 16.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Black,
                                 color = if (openTrades.size >= botMaxTrades) CyberAccentRed else CyberAccentGreen
                             )
@@ -4642,6 +4663,47 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                             modifier = Modifier.weight(1f),
                             singleLine = true
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = botDemoBalanceInput,
+                            onValueChange = {
+                                botDemoBalanceInput = it
+                                it.toDoubleOrNull()?.let { dbal ->
+                                    viewModel.setMexcDemoBalance(dbal)
+                                }
+                            },
+                            label = { Text("MEXC Demo Capital ($)", color = CyberTextDim, fontSize = 9.sp) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberAccentGreen, fontSize = 11.sp),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+
+                        Button(
+                            onClick = {
+                                viewModel.setMexcDemoBalance(10000.0)
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CyberSlate,
+                                contentColor = CyberTextWhite
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(44.dp)
+                        ) {
+                            Text(
+                                "RESET",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
                 }
             }
