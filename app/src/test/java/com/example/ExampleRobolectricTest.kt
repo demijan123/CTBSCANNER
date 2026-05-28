@@ -38,6 +38,17 @@ class ExampleRobolectricTest {
   }
 
   @Test
+  fun `test activity launch and backpress`() {
+    ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+      assertNotNull(scenario)
+      scenario.onActivity { activity ->
+        // Simulate back button press (should trigger onBackPressed)
+        activity.onBackPressedDispatcher.onBackPressed()
+      }
+    }
+  }
+
+  @Test
   fun `test database and viewmodel initialization`() = runTest {
     val context = ApplicationProvider.getApplicationContext<Application>()
     val db = AppDatabase.getDatabase(context)

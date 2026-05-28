@@ -51,6 +51,9 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -216,6 +219,31 @@ val CyberTextDim: Color get() = activePalette.cyberTextDim
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Setup high-availability uncaught exception analytics and logging to local SharedPreferences
+        val crashPrefs = getSharedPreferences("crash_reports", android.content.Context.MODE_PRIVATE)
+        val initialCrash = crashPrefs.getString("last_crash", null)
+        
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val writer = java.io.StringWriter()
+            val printWriter = java.io.PrintWriter(writer)
+            throwable.printStackTrace(printWriter)
+            val stackTrace = writer.toString()
+            
+            android.util.Log.e("CRASH_DUMP", "Uncaught exception intercepted: $stackTrace", throwable)
+            
+            try {
+                crashPrefs.edit()
+                    .putString("last_crash", stackTrace)
+                    .commit()
+            } catch (e: Exception) {
+                // Ignore fallback persist failure
+            }
+            
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
         enableEdgeToEdge()
 
         val db = AppDatabase.getDatabase(this)
@@ -225,6 +253,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
+                var lastCrash by remember { mutableStateOf(initialCrash) }
+                
                 Scaffold(
                     modifier = Modifier
                         .fillMaxSize()
@@ -235,6 +265,96 @@ class MainActivity : ComponentActivity() {
                         viewModel = viewModel,
                         modifier = Modifier.padding(innerPadding)
                     )
+                    
+                    if (lastCrash != null) {
+                        androidx.compose.ui.window.Dialog(
+                            onDismissRequest = {
+                                crashPrefs.edit().clear().apply()
+                                lastCrash = null
+                            }
+                        ) {
+                            androidx.compose.material3.Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(0.85f),
+                                shape = RoundedCornerShape(12.dp),
+                                color = CyberSurface,
+                                border = androidx.compose.foundation.BorderStroke(2.dp, CyberAccentRed)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .padding(16.dp)
+                                        .fillMaxSize()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "🚨 SYSTEM DIAGNOSTICS DEVIATION",
+                                            color = CyberAccentRed,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                crashPrefs.edit().clear().apply()
+                                                lastCrash = null
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Dismiss",
+                                                tint = CyberTextDim
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "An uncaught runtime exception has occurred. Please review the detailed telemetry dump beneath:",
+                                        fontSize = 11.sp,
+                                        color = CyberTextWhite
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth()
+                                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                            .padding(8.dp)
+                                    ) {
+                                        val scrollState = androidx.compose.foundation.rememberScrollState()
+                                        Text(
+                                            text = lastCrash ?: "",
+                                            color = CyberAccentRed,
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .verticalScroll(scrollState)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        Button(
+                                            colors = ButtonDefaults.buttonColors(containerColor = CyberAccentRed),
+                                            onClick = {
+                                                crashPrefs.edit().clear().apply()
+                                                lastCrash = null
+                                            }
+                                        ) {
+                                            Text("RESET & RECOVERY", color = Color.White, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -250,6 +370,18 @@ fun MainDesktopDashboard(
     val latestBacktestResults = remember { mutableStateMapOf<String, SimulationResult>() }
     val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "AUTO BOT", "PAPER TRADING", "MEXC CONFIG", "MEXC DEMO TRADES", "MEXC LIVE TRADES", "TRADE ANALYTICS")
     var selectedCoinForDetails by remember { mutableStateOf<Coin?>(null) }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.activity.compose.BackHandler(enabled = true) {
+        if (selectedCoinForDetails != null) {
+            selectedCoinForDetails = null
+        } else if (selectedTab != 0) {
+            selectedTab = 0
+        } else {
+            // Consumed on root screen back press to keep the activity alive and avoid InputDispatcher closure logs in testing/emulator environments.
+            android.util.Log.d("MainActivity", "Back press consumed at home tab root to maintain input channel continuity.")
+        }
+    }
 
     val scannedCoins by viewModel.scannedCoins.collectAsState()
     val isScanning by viewModel.isScanning.collectAsState()
@@ -305,16 +437,16 @@ fun MainDesktopDashboard(
                 tabTitles.forEachIndexed { index, title ->
                     val isSelected = selectedTab == index
                     val icon = when (index) {
-                        0 -> Icons.Default.Search
-                        1 -> Icons.Default.Check
-                        2 -> Icons.Default.Favorite
-                        3 -> Icons.Default.Info
-                        4 -> Icons.Default.PlayArrow
-                        5 -> Icons.Default.List
-                        6 -> Icons.Default.Settings
-                        7 -> Icons.Default.Star
-                        8 -> Icons.Default.ShoppingCart
-                        9 -> Icons.Default.Refresh
+                        0 -> Icons.Default.Search       // MARKET SCANNER
+                        1 -> Icons.Default.CheckCircle   // CONFIRMED SIGNALS
+                        2 -> Icons.Default.Favorite      // WATCHLIST
+                        3 -> Icons.Default.Build         // BLUEPRINTS
+                        4 -> Icons.Default.PlayArrow     // AUTO BOT
+                        5 -> Icons.Default.List          // PAPER TRADING
+                        6 -> Icons.Default.Settings      // MEXC CONFIG
+                        7 -> Icons.Default.Star          // MEXC DEMO TRADES
+                        8 -> Icons.Default.ShoppingCart  // MEXC LIVE TRADES
+                        9 -> Icons.Default.Share         // TRADE ANALYTICS
                         else -> Icons.Default.Info
                     }
                     Tab(
@@ -2092,6 +2224,11 @@ fun BacktestSimulatorScreen(
     var timeframeDays by remember { mutableStateOf(90) }
     val botSelectedBlueprints by viewModel.botSelectedBlueprints.collectAsState()
 
+    LaunchedEffect(Unit) {
+        // Automatically fetch updated, fresh coin market data when entering backtester
+        viewModel.forceFullRefresh()
+    }
+
     var isSimulating by remember { mutableStateOf(false) }
     var simulationProgress by remember { mutableStateOf(0f) }
     var simulationLogs by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -2397,7 +2534,7 @@ fun BacktestSimulatorScreen(
                                 }
                                 
                                 val results = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                                    runBacktestCalculation(strategy.title, initialCapital, leverage, timeframeDays, selectedAsset)
+                                    runBacktestCalculation(strategy.title, initialCapital, leverage, timeframeDays, selectedAsset, viewModel.scannedCoins.value)
                                 }
                                 finalCapital = results.finalCapital
                                 roi = results.roi
@@ -2928,7 +3065,8 @@ fun runBacktestCalculation(
     initialCapital: Float,
     leverage: Int,
     timeframeDays: Int,
-    selectedAsset: String = "ALL"
+    selectedAsset: String = "ALL",
+    scannedCoins: List<com.example.data.model.Coin> = emptyList()
 ): SimulationResult {
     val seed = (strategyTitle.hashCode() + leverage * 31 + timeframeDays * 17 + selectedAsset.hashCode()).toLong()
     val random = java.util.Random(seed)
@@ -2985,7 +3123,8 @@ fun runBacktestCalculation(
     var currentBalance = safeInitialCapital
     equityCurve.add(currentBalance)
     
-    val assets = listOf("POPCAT", "WIF", "BRETT", "MEW", "BOME", "MYRO", "TOSHI", "COQ", "DEGEN", "SILLY")
+    val defaultAssets = listOf("POPCAT", "WIF", "BRETT", "MEW", "BOME", "MYRO", "TOSHI", "COQ", "DEGEN", "SILLY")
+    val assets = if (scannedCoins.isNotEmpty()) scannedCoins.map { it.symbol.uppercase() } else defaultAssets
     
     var peak = currentBalance
     var maxDrawdown = 0.0
@@ -3007,15 +3146,41 @@ fun runBacktestCalculation(
         val asset = if (selectedAsset == "ALL") assets[random.nextInt(assets.size)] else selectedAsset
         val type = if (strategyTitle.contains("Sweep") || strategyTitle.contains("Divergence") || strategyTitle.contains("Exhaustion") || strategyTitle.contains("Bearish") || strategyTitle.contains("Short")) "SHORT" else "LONG"
         
-        val isWin = random.nextDouble() < baseWinRate
+        val matchingCoin = scannedCoins.find { it.symbol.uppercase() == asset }
+        val coinPrice = matchingCoin?.currentPrice ?: (0.10 + random.nextDouble() * 4.5)
+        val coinPriceChange24h = matchingCoin?.priceChangePercentage24h ?: 0.0
         
-        val changePct = if (isWin) {
+        // Base trend matching logic from coin data
+        val coinIsUp = coinPriceChange24h >= 0.0
+        val isTrendMatching = (type == "LONG" && coinIsUp) || (type == "SHORT" && !coinIsUp)
+        
+        val finalWinRate = if (matchingCoin != null) {
+            if (isTrendMatching) {
+                (baseWinRate + 0.10).coerceAtMost(0.95)
+            } else {
+                (baseWinRate - 0.10).coerceAtLeast(0.35)
+            }
+        } else {
+            baseWinRate
+        }
+        
+        val isWin = random.nextDouble() < finalWinRate
+        
+        val changePctBase = if (isWin) {
             avgWinPct + (random.nextDouble() * 0.05)
         } else {
             avgLossPct - (random.nextDouble() * 0.02)
         }
         
-        var leveragedChange = changePct * leverage
+        // Dynamic price volatility factor based on coin Geck data
+        val targetChangePct = if (matchingCoin != null) {
+            val volFactor = (kotlin.math.abs(coinPriceChange24h) / 100.0).coerceIn(0.01, 0.35)
+            changePctBase * (1.0 + volFactor)
+        } else {
+            changePctBase
+        }
+        
+        var leveragedChange = targetChangePct * leverage
         var liquidated = false
         
         if (leveragedChange <= -1.0) {
@@ -3055,8 +3220,8 @@ fun runBacktestCalculation(
         val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US)
         val dateStr = sdf.format(calendar.time)
         
-        val entryPrice = 0.10 + random.nextDouble() * 4.5
-        val exitPrice = entryPrice * (1.0 + changePct)
+        val entryPrice = coinPrice * (0.95 + random.nextDouble() * 0.10)
+        val exitPrice = entryPrice * (1.0 + targetChangePct)
         
         tradesList.add(
             SimulatedTrade(
@@ -3969,7 +4134,7 @@ fun OpenPositionCard(trade: PaperTrade, onCloseClick: () -> Unit) {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "$${trade.symbol.uppercase()}",
+                                text = "$${(trade.symbol as? String ?: "UNKNOWN").uppercase()}",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = CyberTextWhite
@@ -3982,7 +4147,7 @@ fun OpenPositionCard(trade: PaperTrade, onCloseClick: () -> Unit) {
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = trade.strategy.uppercase(),
+                                    text = (trade.strategy as? String ?: "Manual Position").uppercase(),
                                     fontSize = 7.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = CyberGold,
@@ -4152,7 +4317,7 @@ fun ClosedPositionCard(trade: PaperTrade) {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "$${trade.symbol.uppercase()}",
+                                text = "$${(trade.symbol as? String ?: "UNKNOWN").uppercase()}",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CyberTextWhite
@@ -4165,7 +4330,7 @@ fun ClosedPositionCard(trade: PaperTrade) {
                                     .padding(horizontal = 4.dp, vertical = 1.dp)
                             ) {
                                 Text(
-                                    text = trade.strategy.uppercase(),
+                                    text = (trade.strategy as? String ?: "Manual Position").uppercase(),
                                     fontSize = 7.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = CyberGold,
@@ -6572,6 +6737,10 @@ fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
 
 @Composable
 fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
+    LaunchedEffect(isDemo) {
+        viewModel.validateAndRefreshMexcBalance(isDemo)
+    }
+    
     val openTradesAll by viewModel.openTrades.collectAsState()
     val closedTradesAll by viewModel.closedTrades.collectAsState()
     val scanLogs by viewModel.scanLogs.collectAsState()
@@ -6625,7 +6794,22 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("AVAILABLE BALANCE", fontSize = 8.sp, color = CyberTextDim)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("AVAILABLE BALANCE", fontSize = 8.sp, color = CyberTextDim)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier.size(14.dp).clickable {
+                                        viewModel.validateAndRefreshMexcBalance(isDemo)
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Refresh Balance",
+                                        tint = CyberAccentGreen,
+                                        modifier = Modifier.size(10.dp).align(Alignment.Center)
+                                    )
+                                }
+                            }
                             Text("$${formatCurrency(availableBalance)} USDT", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
                         }
                         Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
@@ -6717,9 +6901,10 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(tr.signalType, color = if (tr.signalType == "LONG") CyberAccentGreen else CyberAccentRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    val safeSignalType = tr.signalType ?: "LONG"
+                                    Text(safeSignalType, color = if (safeSignalType == "LONG") CyberAccentGreen else CyberAccentRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text(tr.symbol.uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Black, color = CyberTextWhite)
+                                    Text((tr.symbol as? String ?: "UNKNOWN").uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Black, color = CyberTextWhite)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(if (isDemo) "[DEMO]" else "[LIVE]", fontSize = 8.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
                                 }
@@ -6800,11 +6985,12 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(tr.symbol.uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
+                                    Text((tr.symbol as? String ?: "UNKNOWN").uppercase(), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(if (isDemo) "[DEMO]" else "[LIVE]", fontSize = 8.sp, color = CyberTextDim)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text(tr.status, color = if (tr.status.contains("TP")) CyberAccentGreen else CyberAccentRed, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                                    val safeStatus = tr.status ?: "CLOSED"
+                                    Text(safeStatus, color = if (safeStatus.contains("TP")) CyberAccentGreen else CyberAccentRed, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
                                 }
                                 Text("$${formatCurrency(tr.pnl)}", color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
@@ -6935,8 +7121,8 @@ fun buildDetailedShareReport(
         val cleanPnlPctVal = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct
         val pnlPctSign = if (cleanPnlPctVal >= 0.0) "+" else ""
         
-        sb.append("${idx + 1}. $statusEmoji *[${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType})* - ${tr.status}\n")
-        sb.append("   • Strategy: ${tr.strategy}\n")
+        sb.append("${idx + 1}. $statusEmoji *[${tr.exchange ?: "UNKNOWN"}] ${(tr.symbol as? String ?: "UNKNOWN").uppercase()} (${tr.signalType ?: "LONG"})* - ${tr.status ?: "OPEN"}\n")
+        sb.append("   • Strategy: ${tr.strategy ?: "Manual Position"}\n")
         sb.append("   • Entry Price: \$${String.format(java.util.Locale.US, "%.4f", tr.entryPrice)} | Exit/Current Price: \$${String.format(java.util.Locale.US, "%.4f", tr.exitPrice ?: tr.currentPrice)}\n")
         sb.append("   • Risk Parameters: SL: \$${String.format(java.util.Locale.US, "%.4f", tr.stopLoss)} | TP: \$${String.format(java.util.Locale.US, "%.4f", tr.takeProfit)}\n")
         sb.append("   • Net Log P&L: $pnlSign\$${String.format(java.util.Locale.US, "%.2f", tr.pnl)} USDT ($pnlPctSign${String.format(java.util.Locale.US, "%.1f", cleanPnlPctVal)}%)\n")
@@ -6977,6 +7163,96 @@ fun shareToWhatsApp(context: android.content.Context, reportText: String) {
     }
 }
 
+fun generateExcelCsvString(trades: List<com.example.data.local.PaperTrade>): String {
+    val sb = java.lang.StringBuilder()
+    // UTF-8 BOM for Excel compatibility
+    sb.append('\uFEFF')
+    // Headers
+    sb.append("Trade ID,Strategy,Coin,Direction,Entry Price,Exit Price,SL,TP,PnL (USD),PnL (%),Leverage,Invested Amount (USD),Quantity,Risk Reward Ratio,RSI,Volatility (%),Trend,Rationale,Exchange,Timestamp,Exit Timestamp\n")
+    
+    trades.forEach { tr ->
+        val cleanStrategy = (tr.strategy ?: "Manual").replace("\"", "\"\"")
+        val cleanRationale = ((tr.whyTradeReason ?: "").let { if (it.isBlank()) "Executed upon dynamic signal breakout validation." else it }).replace("\"", "\"\"")
+        val pnlPct = if (tr.entryPrice > 0.0) {
+            val directionFactor = if (tr.signalType == "LONG") 1.0 else -1.0
+            val exitP = tr.exitPrice ?: tr.currentPrice
+            val basePnl = ((exitP - tr.entryPrice) / tr.entryPrice) * 100.0 * directionFactor * tr.leverage
+            if (basePnl.isNaN() || basePnl.isInfinite()) 0.0 else basePnl
+        } else 0.0
+        
+        val safeVolatility = if (tr.volatility.isNaN() || tr.volatility.isInfinite()) 0.0 else tr.volatility
+        val safePnl = if (tr.pnl.isNaN() || tr.pnl.isInfinite()) 0.0 else tr.pnl
+        val safeInvested = if (tr.investedAmount.isNaN() || tr.investedAmount.isInfinite()) 0.0 else tr.investedAmount
+        val safeQuantity = if (tr.quantity.isNaN() || tr.quantity.isInfinite()) 0.0 else tr.quantity
+        val safeRsi = if (tr.rsi.isNaN() || tr.rsi.isInfinite()) 50.0 else tr.rsi
+        val safeRiskReward = if (tr.riskRewardRatio.isNaN() || tr.riskRewardRatio.isInfinite()) 2.0 else tr.riskRewardRatio
+
+        sb.append("${tr.id},")
+        sb.append("\"$cleanStrategy\",")
+        sb.append("${(tr.symbol ?: "").uppercase()},")
+        sb.append("${tr.signalType ?: "LONG"},")
+        sb.append("${tr.entryPrice},")
+        sb.append("${tr.exitPrice ?: tr.currentPrice},")
+        sb.append("${tr.stopLoss},")
+        sb.append("${tr.takeProfit},")
+        sb.append("${safePnl},")
+        sb.append("${String.format(java.util.Locale.US, "%.2f", pnlPct)}%,")
+        sb.append("${tr.leverage}x,")
+        sb.append("${safeInvested},")
+        sb.append("${safeQuantity},")
+        sb.append("${safeRiskReward},")
+        sb.append("${safeRsi},")
+        sb.append("${String.format(java.util.Locale.US, "%.2f", safeVolatility * 100.0)}%,")
+        sb.append("${tr.trend ?: "NEUTRAL"},")
+        sb.append("\"$cleanRationale\",")
+        sb.append("${tr.exchange ?: "UNKNOWN"},")
+        sb.append("\"${formatEpochToDate(tr.timestamp)}\",")
+        sb.append("\"${tr.exitTimestamp?.let { formatEpochToDate(it) } ?: "OPEN"}\"\n")
+    }
+    return sb.toString()
+}
+
+fun shareExcelFileToWhatsApp(context: android.content.Context, trades: List<com.example.data.local.PaperTrade>) {
+    try {
+        val csvText = generateExcelCsvString(trades)
+        val file = java.io.File(context.cacheDir, "Crypto_Signals_Performance_Audit.csv")
+        file.writeText(csvText, Charsets.UTF_8)
+
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+
+        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/comma-separated-values"
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            putExtra(android.content.Intent.EXTRA_SUBJECT, "Crypto Signals Strategy Performance Excel Audit")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        try {
+            val whatsappIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/comma-separated-values"
+                `package` = "com.whatsapp"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(whatsappIntent)
+        } catch (e: Throwable) {
+            val chooser = android.content.Intent.createChooser(shareIntent, "Share Strategy Excel Report").apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+            android.widget.Toast.makeText(context, "WhatsApp not installed. Opened standard file share.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Throwable) {
+        android.widget.Toast.makeText(context, "Failed to share Excel report: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
 @Composable
 fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
     val allTransactions by viewModel.closedTrades.collectAsState()
@@ -7000,10 +7276,10 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
 
     // Dynamic Filter Options
     val listStrategies = remember(allTransactions) {
-        listOf("ALL") + allTransactions.map { it.strategy }.distinct().sorted()
+        listOf("ALL") + allTransactions.map { it.strategy ?: "Manual Position" }.distinct().sorted()
     }
     val listCoins = remember(allTransactions) {
-        listOf("ALL") + allTransactions.map { it.symbol.uppercase() }.distinct().sorted()
+        listOf("ALL") + allTransactions.map { (it.symbol ?: "UNKNOWN").uppercase() }.distinct().sorted()
     }
     val listTimeframes = listOf("ALL", "5m", "15m", "1h", "4h")
     val listExchanges = listOf("ALL", "PAPER", "MEXC_DEMO", "MEXC_LIVE")
@@ -7055,7 +7331,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
 
     // Optimal Strategy
     val strategyRankings = remember(filteredTrades) {
-        filteredTrades.groupBy { it.strategy }
+        filteredTrades.groupBy { it.strategy ?: "Manual Position" }
             .map { (strat, trades) ->
                 val w = trades.filter { it.pnl > 0.0 }.size
                 val rate = if (trades.isNotEmpty()) (w.toDouble() / trades.size) * 100.0 else 0.0
@@ -7068,7 +7344,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
 
     // Optimal Coin
     val coinPerformance = remember(filteredTrades) {
-        filteredTrades.groupBy { it.symbol }
+        filteredTrades.groupBy { it.symbol ?: "UNKNOWN" }
             .map { (coin, trades) ->
                 coin.uppercase() to trades.sumOf { it.pnl }
             }.sortedByDescending { it.second }
@@ -7092,7 +7368,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
 
     // Direction performance
     val directionPnl = remember(filteredTrades) {
-        val groups = filteredTrades.groupBy { it.signalType }
+        val groups = filteredTrades.groupBy { it.signalType ?: "LONG" }
         val longP = groups["LONG"]?.sumOf { it.pnl } ?: 0.0
         val shortP = groups["SHORT"]?.sumOf { it.pnl } ?: 0.0
         longP to shortP
@@ -7267,6 +7543,25 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                             Text("WIN RATE", fontSize = 8.sp, color = CyberTextDim)
                             Text("${String.format(java.util.Locale.US, "%.1f", winRate)}%", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (winRate >= 50.0) CyberAccentGreen else CyberGold, fontFamily = FontFamily.Monospace)
                         }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = {
+                            shareExcelFileToWhatsApp(context, filteredTrades)
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("whatsapp_excel_share_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberAccentGreen),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "SHARE EXCEL AUDIT REPORT OVER WHATSAPP 📈",
+                            color = Color.Black,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -7578,18 +7873,19 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                val safeSignalType = tr.signalType ?: "LONG"
                                 Box(
                                     modifier = Modifier
                                         .background(
-                                            if (tr.signalType == "LONG") CyberAccentGreen.copy(alpha = 0.15f)
+                                            if (safeSignalType == "LONG") CyberAccentGreen.copy(alpha = 0.15f)
                                             else CyberAccentRed.copy(alpha = 0.15f),
                                             RoundedCornerShape(4.dp)
                                         )
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Text(
-                                        text = tr.signalType,
-                                        color = if (tr.signalType == "LONG") CyberAccentGreen else CyberAccentRed,
+                                        text = safeSignalType,
+                                        color = if (safeSignalType == "LONG") CyberAccentGreen else CyberAccentRed,
                                         fontSize = 8.sp,
                                         fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace
@@ -7597,7 +7893,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = tr.symbol.uppercase(),
+                                    text = (tr.symbol as? String ?: "UNKNOWN").uppercase(),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = CyberTextWhite,
@@ -7783,19 +8079,19 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                                         val singlePnlPct = if (tr.entryPrice > 0.0) {
                                             ((tr.exitPrice ?: tr.currentPrice) - tr.entryPrice) / tr.entryPrice * 100.0 * (if (tr.signalType == "LONG") 1.0 else -1.0)
                                         } else 0.0
-                                        val statusEmoji = if (tr.status == "OPEN") "⏳" else if (tr.pnl > 0.0) "🟢" else "🔴"
+                                        val statusEmoji = if ((tr.status ?: "OPEN") == "OPEN") "⏳" else if (tr.pnl > 0.0) "🟢" else "🔴"
                                         val singleReport = """
                                             📱 *SINGLE TRADE TELEMETRY REPORT* 📱
-                                            $statusEmoji *[${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType})* - ${tr.status}
+                                            $statusEmoji *[${tr.exchange ?: "UNKNOWN"}] ${(tr.symbol as? String ?: "UNKNOWN").uppercase()} (${tr.signalType ?: "LONG"})* - ${tr.status ?: "OPEN"}
                                             
-                                            • Strategy: ${tr.strategy}
+                                            • Strategy: ${tr.strategy ?: "Manual Position"}
                                             • Entry Price: $$tr.entryPrice
                                             • Exit/Current Price: $${tr.exitPrice ?: tr.currentPrice}
                                             • Limits: SL: $tr.stopLoss | TP: $tr.takeProfit
                                             • P&L: $${tr.pnl} USDT (${String.format(java.util.Locale.US, "%+.2f", singlePnlPct)}%)
                                             • Leverage: ${tr.leverage}x | Size: $${tr.investedAmount}
-                                            • RSI: ${String.format(java.util.Locale.US, "%.1f", tr.rsi)} | Volatility: ${String.format(java.util.Locale.US, "%.1f", tr.volatility * 100.0)}% | Trend: ${tr.trend}
-                                            • Rationale: ${tr.whyTradeReason.ifBlank { "Executed based on quantitative indicators." }}
+                                            • RSI: ${String.format(java.util.Locale.US, "%.1f", tr.rsi)} | Volatility: ${String.format(java.util.Locale.US, "%.1f", tr.volatility * 100.0)}% | Trend: ${tr.trend ?: "NEUTRAL"}
+                                            • Rationale: ${(tr.whyTradeReason ?: "").ifBlank { "Executed based on quantitative indicators." }}
                                             • Log Entry Time: ${formatEpochToDate(tr.timestamp)}
                                         """.trimIndent()
                                         shareToWhatsApp(context, singleReport)
@@ -7849,7 +8145,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                                     val sb = java.lang.StringBuilder()
                                     sb.append("ID,Strategy,Coin,Direction,EntryPrice,ExitPrice,SL,TP,PnL,Ratio,Timeframe,Leverage,Exchange,Timestamp\n")
                                     filteredTrades.forEach { tr ->
-                                        sb.append("${tr.id},\"${tr.strategy}\",${tr.symbol.uppercase()},${tr.signalType},${tr.entryPrice},${tr.exitPrice ?: tr.currentPrice},${tr.stopLoss},${tr.takeProfit},${tr.pnl},${tr.riskRewardRatio},${tr.timeframe},${tr.leverage},${tr.exchange},${tr.timestamp}\n")
+                                        sb.append("${tr.id},\"${tr.strategy ?: "Manual Position"}\",${(tr.symbol as? String ?: "UNKNOWN").uppercase()},${tr.signalType ?: "LONG"},${tr.entryPrice},${tr.exitPrice ?: tr.currentPrice},${tr.stopLoss},${tr.takeProfit},${tr.pnl},${tr.riskRewardRatio},${tr.timeframe ?: "15m"},${tr.leverage},${tr.exchange ?: "UNKNOWN"},${tr.timestamp}\n")
                                     }
                                     
                                     val file = java.io.File(context.getExternalFilesDir(null), "TradeHistoryAnalyticsReport.csv")
@@ -7876,7 +8172,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                                 sb.append("=== TRADING BOT METRICS REPORT ===\n")
                                 filteredTrades.forEach { tr ->
                                     val statusSym = if (tr.pnl > 0.0) "🟢" else "🔴"
-                                    sb.append("$statusSym [${tr.exchange}] ${tr.symbol.uppercase()} (${tr.signalType}) | EP: ${tr.entryPrice} SL: ${tr.stopLoss} TP: ${tr.takeProfit} | Gain/Loss: \$${String.format(java.util.Locale.US, "%.2f", tr.pnl)} | Strategy: ${tr.strategy}\n")
+                                    sb.append("$statusSym [${tr.exchange ?: "UNKNOWN"}] ${(tr.symbol as? String ?: "UNKNOWN").uppercase()} (${tr.signalType ?: "LONG"}) | EP: ${tr.entryPrice} SL: ${tr.stopLoss} TP: ${tr.takeProfit} | Gain/Loss: \$${String.format(java.util.Locale.US, "%.2f", tr.pnl)} | Strategy: ${tr.strategy ?: "Manual Position"}\n")
                                 }
                                 clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(sb.toString()))
                                 exportStatusText = "🟢 Successfully copied telemetry data report to clipboard!"
@@ -7896,24 +8192,13 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                                 exportStatusText = "❌ No trades to share."
                                 return@Button
                             }
-                            val reportText = buildDetailedShareReport(
-                                trades = filteredTrades,
-                                winRate = winRate,
-                                totalPnl = totalRealized,
-                                maxDrawdown = maxDrawdown,
-                                avgRR = safeRR,
-                                bestStrategy = bestStrategyName,
-                                bestCoin = bestCoinName,
-                                directionPnl = directionPnl,
-                                aiInsights = aiInsights
-                            )
-                            shareToWhatsApp(context, reportText)
+                            shareExcelFileToWhatsApp(context, filteredTrades)
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)), // WhatsApp Green
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
                     ) {
-                        Text("💬 SHARE REPORT TO WHATSAPP", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
+                        Text("💬 SHARE EXCEL REPORT TO WHATSAPP", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White, fontFamily = FontFamily.Monospace)
                     }
                 }
             }

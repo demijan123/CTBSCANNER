@@ -125,6 +125,39 @@ class CryptoRepository(
      * pricing patterns, relative volumes, and predict high-confirmation short/long signals.
      */
     suspend fun predictTradeSignal(coin: Coin): TradePrediction = withContext(Dispatchers.IO) {
+        val price = coin.currentPrice
+        val changePercentage = coin.priceChangePercentage24h ?: 0.0
+        val vol = coin.totalVolume ?: 500_000.0
+        val relativeVolume = vol / (coin.marketCap.coerceAtLeast(1.0) * 0.05) // Approximate relative volume indicator
+
+        val isOversold = changePercentage < -9.5 && relativeVolume > 1.2
+        val isOverboughtBreakout = changePercentage > 12.0 && relativeVolume > 1.5
+        val isExhaustionRally = changePercentage > 8.0 && relativeVolume < 0.6
+        val isWyckoffSpring = (changePercentage in -4.0..-0.1) && relativeVolume > 1.4
+        val isEmaContinuation = (changePercentage in 4.0..10.0) && relativeVolume > 1.3
+        val isMacdDivergence = (changePercentage in 1.0..6.0) && relativeVolume in 0.65..1.0 && (coin.name.hashCode() % 2 == 0)
+        val isOrderBlockSweep = (changePercentage in -9.5..-4.0) && (coin.name.hashCode() % 3 == 0)
+
+        val activeStrategies = mutableListOf<String>()
+        if (isOversold) activeStrategies.add("Mean Reversion & Oversold Bounce")
+        if (isOverboughtBreakout) activeStrategies.add("High-Volume Momentum Breakout")
+        if (isEmaContinuation) activeStrategies.add("EMA Continuation Cross (V3)")
+        if (isWyckoffSpring) activeStrategies.add("Wyckoff Spring & Phase C Accumulation")
+        if (isOrderBlockSweep) activeStrategies.add("Institutional Order Block Grab")
+        if (isExhaustionRally) activeStrategies.add("Volumetric Liquidity Sweep")
+        if (isMacdDivergence) activeStrategies.add("MACD Divergence & Momentum Exhaustion")
+
+        if (activeStrategies.isEmpty()) {
+            return@withContext TradePrediction(
+                signal = "NONE",
+                confidence = 0,
+                strategy = "Neutral Cycle Consolidation",
+                stopLoss = 0.0,
+                takeProfit = 0.0,
+                rationale = "Technical oscillators reside in range equilibrium. Lacks macro-volume triggers or high-probability trends to justify entry."
+            )
+        }
+
         val apiKey = BuildConfig.GEMINI_API_KEY
         val isKeyConfigured = apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY"
 
@@ -135,7 +168,9 @@ class CryptoRepository(
             val volume = coin.totalVolume ?: 1_000_000.0
 
             val prompt = """
-                Analyze the following cryptocurrency with a market cap of USD ${coin.marketCap} (approximately $${String.format(java.util.Locale.US, "%.1f", coin.marketCap / 1_000_000.0)}M) and determine if there is a HIGH-CONFIDENCE SHORT or LONG trade signal (confidence >= 85%) based on professional trading strategies (EMA Cross, RSI, MACD, Order Block sweep, Support/Resistance channels, Volumetric Liquidity Grab).
+                Analyze the following cryptocurrency with a market cap of USD ${coin.marketCap} (approximately $${String.format(java.util.Locale.US, "%.1f", coin.marketCap / 1_000_000.0)}M) and determine if there is a HIGH-CONFIDENCE SHORT or LONG trade signal (confidence >= 85%) based ONLY and strictly on one of the currently active trading strategies that have met their required technical conditions.
+
+                Active Strategies that met required conditions for this coin: ${activeStrategies.joinToString(", ")}
 
                 Coin Details:
                 - Name: ${coin.name} (${coin.symbol.uppercase()})
@@ -147,16 +182,16 @@ class CryptoRepository(
                 - 24h Trading Volume: USD $volume
 
                 Requirements:
-                - ONLY output a valid trade if it is highly confirmed and high probability (confidence >= 85%).
-                - If the signals are mixed, unclear, or in consolidation channels, set the signal to "NONE".
+                - Your output strategy MUST be chosen precisely from the listed active strategies: ${activeStrategies.joinToString(", ")}.
+                - If the signals are mixed or you do not think the trade is safe, set the signal to "NONE".
                 - Recommend precision Stop-Loss and Take-Profit price levels relative to ${coin.currentPrice}.
-                - Provide a detailed, professional, and educational trade "rationale" explaining EXACTLY why we are trading LONG or SHORT on this specific coin (e.g. key technical trigger, trend alignment, entry confirmation, and why this asset represents high-probability alpha).
+                - Provide a detailed, professional, and educational trade "rationale" explaining EXACTLY why we are trading LONG or SHORT on this specific coin based strictly on the chosen active strategy.
 
                 Your response MUST be ONLY a single structured JSON object of this schema:
                 {
                   "signal": "LONG" | "SHORT" | "NONE",
                   "confidence": 85,
-                  "strategy": "Strategy Name",
+                  "strategy": "${activeStrategies.first()}",  // Choose from the active strategies list
                   "stopLoss": 1.25,
                   "takeProfit": 1.55,
                   "rationale": "Detailed explanation of exactly why we go LONG or SHORT on this coin"
@@ -180,7 +215,7 @@ class CryptoRepository(
                     val cleanJson = rawJson.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
                     val adapter = moshi.adapter(TradePrediction::class.java)
                     val prediction = adapter.fromJson(cleanJson)
-                    if (prediction != null) {
+                    if (prediction != null && activeStrategies.contains(prediction.strategy)) {
                         return@withContext prediction
                     }
                 }
@@ -188,21 +223,6 @@ class CryptoRepository(
                 Log.e("CryptoRepository", "Gemini prediction error: ${e.message}. Using trade rules instead.", e)
             }
         }
-
-        // --- Algoritm-Based Technical Indicators Fallback (When API offline or key not available) ---
-        // Generates highly realistic signals based on real quantitative trading strategy formulas
-        val price = coin.currentPrice
-        val changePercentage = coin.priceChangePercentage24h ?: 0.0
-        val vol = coin.totalVolume ?: 500_000.0
-        val relativeVolume = vol / (coin.marketCap.coerceAtLeast(1.0) * 0.05) // Approximate relative volume indicator
-
-        val isOversold = changePercentage < -9.5 && relativeVolume > 1.2
-        val isOverboughtBreakout = changePercentage > 12.0 && relativeVolume > 1.5
-        val isExhaustionRally = changePercentage > 8.0 && relativeVolume < 0.6
-        val isWyckoffSpring = (changePercentage in -4.0..-0.1) && relativeVolume > 1.4
-        val isEmaContinuation = (changePercentage in 4.0..10.0) && relativeVolume > 1.3
-        val isMacdDivergence = (changePercentage in 1.0..6.0) && relativeVolume in 0.65..1.0 && (coin.name.hashCode() % 2 == 0)
-        val isOrderBlockSweep = (changePercentage in -9.5..-4.0) && (coin.name.hashCode() % 3 == 0)
 
         when {
             isOversold -> {

@@ -244,10 +244,10 @@ class CryptoViewModel(
         validateAndRefreshMexcBalance()
     }
 
-    fun validateAndRefreshMexcBalance() {
+    fun validateAndRefreshMexcBalance(forcedIsDemo: Boolean? = null) {
         val key = _mexcApiKey.value
         val sec = _mexcSecretKey.value
-        val isDemo = _mexcIsDemo.value
+        val isDemo = forcedIsDemo ?: _mexcIsDemo.value
 
         if (key.isBlank() || sec.isBlank()) {
             _mexcConnectionStatus.value = "Credentials Missing"
@@ -258,11 +258,19 @@ class CryptoViewModel(
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val balance = MexcClient.validateAndFetchBalance(key, sec, isDemo)
-                _mexcBalance.value = balance
+                if (isDemo) {
+                    _mexcDemoBalance.value = balance
+                } else {
+                    _mexcBalance.value = balance
+                }
                 _mexcConnectionStatus.value = "Connected: ${String.format(Locale.US, "%.2f", balance)} USDT (${if (isDemo) "Demo" else "Live"})"
                 addLog("🟢 MEXC API connection verified successfully. Balance: $${String.format(Locale.US, "%.2f", balance)} USDT.")
             } catch (e: Throwable) {
-                _mexcBalance.value = 0.0
+                if (isDemo) {
+                    _mexcDemoBalance.value = 10000.0
+                } else {
+                    _mexcBalance.value = 0.0
+                }
                 val errMsg = e.localizedMessage ?: "Unknown connection error"
                 _mexcConnectionStatus.value = "Error: $errMsg"
                 addLog("❌ MEXC API connection failed: $errMsg")
@@ -1059,6 +1067,13 @@ class CryptoViewModel(
     fun manualHarvestProfitTrades(isMexc: Boolean, isDemo: Boolean = false) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                val isEnabled = if (isMexc) _mexcPnLBalancerEnabled.value else _paperPnLBalancerEnabled.value
+                val modeLabel = if (isMexc) (if (isDemo) "MEXC Demo" else "MEXC Live") else "Paper"
+                if (!isEnabled) {
+                    addLog("🛡️ [P&L Balancer] Early position offset is currently disabled for $modeLabel. Enable the P&L Balancer inside settings to permit early harvest.")
+                    return@launch
+                }
+                
                 val openList = repository.getOpenTradesList()
                 val closedList = repository.getClosedTradesList()
                 val realizedPnl = if (isMexc) {
@@ -1067,7 +1082,6 @@ class CryptoViewModel(
                     closedList.filter { !it.isMexcTrade }.sumOf { it.pnl }
                 }
                 
-                val modeLabel = if (isMexc) (if (isDemo) "MEXC Demo" else "MEXC Live") else "Paper"
                 if (realizedPnl >= 0.0) {
                     addLog("🛡️ [P&L Balancer] $modeLabel Realized Pnl is positive ($${String.format(Locale.US, "%.2f", realizedPnl)}). No harvest needed.")
                     return@launch
@@ -1412,7 +1426,7 @@ class CryptoViewModel(
                 val winRate = (winTrades.size.toDouble() / totalTrades) * 100.0
                 val totalPnL = closedTrades.sumOf { it.pnl }
                 
-                val stratGroups = closedTrades.groupBy { it.strategy }
+                val stratGroups = closedTrades.groupBy { it.strategy ?: "Manual Position" }
                 val stratMetrics = stratGroups.map { (strat, trades) ->
                     val total = trades.size
                     val won = trades.filter { it.pnl > 0.0 }.size
@@ -1421,10 +1435,10 @@ class CryptoViewModel(
                     "Strategy: \"$strat\" -> Trades: $total, WinRate: ${String.format(java.util.Locale.US, "%.1f", wr)}%, PnP: $${String.format(java.util.Locale.US, "%.2f", pnl)}"
                 }.joinToString("\n")
 
-                val coinGroups = closedTrades.groupBy { it.symbol }
+                val coinGroups = closedTrades.groupBy { (it.symbol ?: "UNKNOWN").uppercase() }
                 val coinMetrics = coinGroups.map { (sym, trades) ->
                     val pnl = trades.sumOf { it.pnl }
-                    "Pair: ${sym.uppercase()}/USDT -> Cum P&L: $${String.format(java.util.Locale.US, "%.2f", pnl)}"
+                    "Pair: $sym/USDT -> Cum P&L: $${String.format(java.util.Locale.US, "%.2f", pnl)}"
                 }.take(5).joinToString("\n")
 
                 val prompt = """
@@ -1480,15 +1494,15 @@ class CryptoViewModel(
         val winRate = (wins.toDouble() / total) * 100.0
         val totalPnl = closedTrades.sumOf { it.pnl }
         
-        val bestStrat = closedTrades.groupBy { it.strategy }
+        val bestStrat = closedTrades.groupBy { it.strategy ?: "Manual Position" }
             .mapValues { it.value.sumOf { t -> t.pnl } }
             .maxByOrNull { it.value }
             
-        val worstStrat = closedTrades.groupBy { it.strategy }
+        val worstStrat = closedTrades.groupBy { it.strategy ?: "Manual Position" }
             .mapValues { it.value.sumOf { t -> t.pnl } }
             .minByOrNull { it.value }
 
-        val bestCoin = closedTrades.groupBy { it.symbol }
+        val bestCoin = closedTrades.groupBy { (it.symbol ?: "UNKNOWN").uppercase() }
             .mapValues { it.value.sumOf { t -> t.pnl } }
             .maxByOrNull { it.value }
 
