@@ -74,6 +74,15 @@ class CryptoViewModel(
     private val _customRiskRewardRatio = MutableStateFlow(prefs.getFloat("custom_risk_reward_ratio", 2.0f).toDouble())
     val customRiskRewardRatio: StateFlow<Double> = _customRiskRewardRatio.asStateFlow()
 
+    private val _useManualPercentages = MutableStateFlow(prefs.getBoolean("use_manual_percentages", false))
+    val useManualPercentages: StateFlow<Boolean> = _useManualPercentages.asStateFlow()
+
+    private val _manualStopLossPercent = MutableStateFlow(prefs.getFloat("manual_stop_loss_percent", 2.0f).toDouble())
+    val manualStopLossPercent: StateFlow<Double> = _manualStopLossPercent.asStateFlow()
+
+    private val _manualTakeProfitPercent = MutableStateFlow(prefs.getFloat("manual_take_profit_percent", 4.0f).toDouble())
+    val manualTakeProfitPercent: StateFlow<Double> = _manualTakeProfitPercent.asStateFlow()
+
     private val _botTargetCoinMode = MutableStateFlow(prefs.getString("bot_target_coin_mode", "ALL") ?: "ALL")
     val botTargetCoinMode: StateFlow<String> = _botTargetCoinMode.asStateFlow()
 
@@ -1302,14 +1311,54 @@ class CryptoViewModel(
         addLog("🛡️ Configured Custom Risk-to-Reward Ratio: ${String.format(java.util.Locale.US, "%.1f", coerced)}:1")
     }
 
+    fun setUseManualPercentages(enabled: Boolean) {
+        _useManualPercentages.value = enabled
+        prefs.edit().putBoolean("use_manual_percentages", enabled).apply()
+        addLog("🛡️ Use Manual SL/TP Percentages toggled: $enabled")
+    }
+
+    fun setManualStopLossPercent(percent: Double) {
+        val coerced = percent.coerceIn(0.1, 50.0)
+        _manualStopLossPercent.value = coerced
+        prefs.edit().putFloat("manual_stop_loss_percent", coerced.toFloat()).apply()
+        addLog("🛡️ Configured Manual Stop Loss: ${String.format(java.util.Locale.US, "%.1f", coerced)}%")
+    }
+
+    fun setManualTakeProfitPercent(percent: Double) {
+        val coerced = percent.coerceIn(0.1, 200.0)
+        _manualTakeProfitPercent.value = coerced
+        prefs.edit().putFloat("manual_take_profit_percent", coerced.toFloat()).apply()
+        addLog("🛡️ Configured Manual Take Profit: ${String.format(java.util.Locale.US, "%.1f", coerced)}%")
+    }
+
     fun adjustExitPricesForRatio(
         entryPrice: Double,
         stopLoss: Double,
         takeProfit: Double,
         signalType: String
     ): Pair<Double, Double> {
+        val isBuy = signalType.uppercase() == "LONG" || signalType.uppercase() == "BUY"
+        
+        if (_useManualPercentages.value) {
+            val slPct = _manualStopLossPercent.value / 100.0
+            val tpPct = _manualTakeProfitPercent.value / 100.0
+            
+            val finalSl = if (isBuy) {
+                entryPrice * (1.0 - slPct)
+            } else {
+                entryPrice * (1.0 + slPct)
+            }
+            
+            val finalTp = if (isBuy) {
+                entryPrice * (1.0 + tpPct)
+            } else {
+                entryPrice * (1.0 - tpPct)
+            }
+            
+            return Pair(finalSl.coerceAtLeast(0.000001), finalTp.coerceAtLeast(0.000001))
+        }
+
         val ratio = _customRiskRewardRatio.value
-        val isBuy = signalType == "LONG"
         
         var riskAmount = Math.abs(entryPrice - stopLoss)
         if (riskAmount <= 0.0 || stopLoss <= 0.0 || entryPrice <= 0.0 || riskAmount >= entryPrice) {

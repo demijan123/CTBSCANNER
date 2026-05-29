@@ -5893,9 +5893,12 @@ fun OldAutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // C: Custom Risk-to-Reward Ratio Input Configuration
+                    val useManual by viewModel.useManualPercentages.collectAsState()
+                    val manualSlPct by viewModel.manualStopLossPercent.collectAsState()
+                    val manualTpPct by viewModel.manualTakeProfitPercent.collectAsState()
+
                     Text(
-                        text = "CUSTOM RISK-TO-REWARD RATIO (REWARD : RISK)",
+                        text = "EXIT TARGETING MODULE",
                         fontSize = 8.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = CyberTextDim
@@ -5903,61 +5906,197 @@ fun OldAutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            .padding(vertical = 8.dp)
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        val customRR by viewModel.customRiskRewardRatio.collectAsState()
-                        var rrInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customRR)) }
-                        var isRrFocused by remember { mutableStateOf(false) }
-                        LaunchedEffect(customRR) {
-                            if (!isRrFocused) {
-                                rrInput = String.format(java.util.Locale.US, "%.1f", customRR)
+                        listOf(false to "RISK-TO-REWARD RATIO", true to "MANUAL PERCENTAGES").forEach { (isManual, label) ->
+                            val selected = (useManual == isManual)
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(
+                                        if (selected) CyberAccentGreen else androidx.compose.ui.graphics.Color.Transparent,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { viewModel.setUseManualPercentages(isManual) }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selected) CyberDark else CyberTextDim
+                                )
                             }
                         }
+                    }
 
-                        OutlinedTextField(
-                            value = rrInput,
-                            onValueChange = { newValue ->
-                                rrInput = newValue
-                                val parsed = newValue.toDoubleOrNull()
-                                if (parsed != null && parsed >= 1.0 && parsed <= 10.0) {
-                                    viewModel.setCustomRiskRewardRatio(parsed)
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .onFocusChanged { isRrFocused = it.isFocused }
-                                .testTag("bot_custom_rr_input"),
-                            label = { Text("Ratio (1.0 - 10.0)", color = CyberTextDim, fontSize = 11.sp) },
-                            placeholder = { Text("2.0", color = CyberTextDim.copy(alpha = 0.5f)) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = CyberAccentGreen,
-                                unfocusedBorderColor = CyberSurface,
-                                focusedTextColor = CyberTextWhite,
-                                unfocusedTextColor = CyberTextWhite,
-                                focusedLabelColor = CyberAccentGreen,
-                                unfocusedLabelColor = CyberTextDim,
-                                focusedContainerColor = CyberDark,
-                                unfocusedContainerColor = CyberDark
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
-                            )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (!useManual) {
+                        // Custom Risk-to-Reward Ratio Input Configuration
+                        Text(
+                            text = "CUSTOM RISK-TO-REWARD RATIO (REWARD : RISK)",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim
                         )
-                        Box(
+                        Row(
                             modifier = Modifier
-                                .background(CyberSlate, RoundedCornerShape(12.dp))
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Text(
-                                text = "${String.format(java.util.Locale.US, "%.1f", customRR)} : 1.0",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = CyberAccentGreen
+                            val customRR by viewModel.customRiskRewardRatio.collectAsState()
+                            var rrInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customRR)) }
+                            var isRrFocused by remember { mutableStateOf(false) }
+                            LaunchedEffect(customRR) {
+                                if (!isRrFocused) {
+                                    rrInput = String.format(java.util.Locale.US, "%.1f", customRR)
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = rrInput,
+                                onValueChange = { newValue ->
+                                    rrInput = newValue
+                                    val parsed = newValue.toDoubleOrNull()
+                                    if (parsed != null && parsed >= 1.0 && parsed <= 10.0) {
+                                        viewModel.setCustomRiskRewardRatio(parsed)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .onFocusChanged { isRrFocused = it.isFocused }
+                                    .testTag("bot_custom_rr_input"),
+                                label = { Text("Ratio (1.0 - 10.0)", color = CyberTextDim, fontSize = 11.sp) },
+                                placeholder = { Text("2.0", color = CyberTextDim.copy(alpha = 0.5f)) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CyberAccentGreen,
+                                    unfocusedBorderColor = CyberSurface,
+                                    focusedTextColor = CyberTextWhite,
+                                    unfocusedTextColor = CyberTextWhite,
+                                    focusedLabelColor = CyberAccentGreen,
+                                    unfocusedLabelColor = CyberTextDim,
+                                    focusedContainerColor = CyberDark,
+                                    unfocusedContainerColor = CyberDark
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                )
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .background(CyberSlate, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${String.format(java.util.Locale.US, "%.1f", customRR)} : 1.0",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberAccentGreen
+                                )
+                            }
+                        }
+                    } else {
+                        // Manual percentages configuration
+                        Text(
+                            text = "MANUAL BRACKETS OVERRIDES (% OF ENTRY)",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberTextDim
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            var slInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualSlPct)) }
+                            var isSlFocused by remember { mutableStateOf(false) }
+                            LaunchedEffect(manualSlPct) {
+                                if (!isSlFocused) {
+                                    slInput = String.format(java.util.Locale.US, "%.1f", manualSlPct)
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = slInput,
+                                onValueChange = { newValue ->
+                                    slInput = newValue
+                                    val parsed = newValue.toDoubleOrNull()
+                                    if (parsed != null && parsed >= 0.1 && parsed <= 50.0) {
+                                        viewModel.setManualStopLossPercent(parsed)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .onFocusChanged { isSlFocused = it.isFocused }
+                                    .testTag("bot_manual_sl_input"),
+                                label = { Text("Stop Loss % (0.1-50)", color = CyberTextDim, fontSize = 11.sp) },
+                                placeholder = { Text("2.0", color = CyberTextDim.copy(alpha = 0.5f)) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CyberAccentGreen,
+                                    unfocusedBorderColor = CyberSurface,
+                                    focusedTextColor = CyberTextWhite,
+                                    unfocusedTextColor = CyberTextWhite,
+                                    focusedLabelColor = CyberAccentGreen,
+                                    unfocusedLabelColor = CyberTextDim,
+                                    focusedContainerColor = CyberDark,
+                                    unfocusedContainerColor = CyberDark
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                )
+                            )
+
+                            var tpInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualTpPct)) }
+                            var isTpFocused by remember { mutableStateOf(false) }
+                            LaunchedEffect(manualTpPct) {
+                                if (!isTpFocused) {
+                                    tpInput = String.format(java.util.Locale.US, "%.1f", manualTpPct)
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = tpInput,
+                                onValueChange = { newValue ->
+                                    tpInput = newValue
+                                    val parsed = newValue.toDoubleOrNull()
+                                    if (parsed != null && parsed >= 0.1 && parsed <= 200.0) {
+                                        viewModel.setManualTakeProfitPercent(parsed)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .onFocusChanged { isTpFocused = it.isFocused }
+                                    .testTag("bot_manual_tp_input"),
+                                label = { Text("Take Profit % (0.1-200)", color = CyberTextDim, fontSize = 11.sp) },
+                                placeholder = { Text("4.0", color = CyberTextDim.copy(alpha = 0.5f)) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CyberAccentGreen,
+                                    unfocusedBorderColor = CyberSurface,
+                                    focusedTextColor = CyberTextWhite,
+                                    unfocusedTextColor = CyberTextWhite,
+                                    focusedLabelColor = CyberAccentGreen,
+                                    unfocusedLabelColor = CyberTextDim,
+                                    focusedContainerColor = CyberDark,
+                                    unfocusedContainerColor = CyberDark
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                )
                             )
                         }
                     }
