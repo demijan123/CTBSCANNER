@@ -805,7 +805,7 @@ fun ScannerLiveProgressOverlay(
             }
             Spacer(modifier = Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = { if (progress.isNaN() || progress.isInfinite()) 0f else progress.coerceIn(0f, 1f) },
+                progress = if (progress.isNaN() || progress.isInfinite()) 0f else progress.coerceIn(0f, 1f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
@@ -3008,7 +3008,7 @@ fun BacktestSimulatorScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         LinearProgressIndicator(
-                            progress = { if (simulationProgress.isNaN() || simulationProgress.isInfinite()) 0f else simulationProgress.coerceIn(0f, 1f) },
+                            progress = if (simulationProgress.isNaN() || simulationProgress.isInfinite()) 0f else simulationProgress.coerceIn(0f, 1f),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp),

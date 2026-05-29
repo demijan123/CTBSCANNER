@@ -394,6 +394,12 @@ class CryptoViewModel(
                 val range = getActiveMarketCapRange()
                 val coins = repository.scanMarket(useFallbackOnly = true, minCap = range.first, maxCap = range.second)
                 _scannedCoins.value = coins
+                
+                // Align the automated trading bots with the config changes instantly
+                mexcBotScannedCoins = coins
+                lastMexcBotScanTime = System.currentTimeMillis()
+                botScannedCoins = coins
+                lastBotScanTime = System.currentTimeMillis()
             } catch (e: Throwable) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     _error.value = "Failed to load market data: ${e.message}"
@@ -527,6 +533,12 @@ class CryptoViewModel(
                 // Fetch candidate coins
                 val coins = repository.scanMarket(useFallbackOnly, minCap = range.first, maxCap = range.second)
                 _scannedCoins.value = coins
+                
+                // Immediately align the automated trading bots with the fresh set of manually scanned coins
+                mexcBotScannedCoins = coins
+                lastMexcBotScanTime = System.currentTimeMillis()
+                botScannedCoins = coins
+                lastBotScanTime = System.currentTimeMillis()
                 
                 if (coins.isEmpty()) {
                     addLog("Warning: No active coins detected in range under current API rate limits. Generating high-liquidity sandbox targets.")
@@ -1166,26 +1178,22 @@ class CryptoViewModel(
 
             val now = System.currentTimeMillis()
             val scanMode = _mexcBotScanMode.value
+            val range = getActiveMarketCapRange()
             
-            val coins = if (scanMode == "COINGECKO") {
-                val range = getActiveMarketCapRange()
-                if (mexcBotScannedCoins.isEmpty() || (now - lastMexcBotScanTime) > 60000L) {
-                    val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
-                    mexcBotScannedCoins = fetched
-                    lastMexcBotScanTime = now
-                    fetched
-                } else {
-                    mexcBotScannedCoins
-                }
+            val coins = if (mexcBotScannedCoins.isNotEmpty() && (now - lastMexcBotScanTime) <= 60000L) {
+                mexcBotScannedCoins
             } else {
-                val range = getActiveMarketCapRange()
-                if (mexcBotScannedCoins.isEmpty() || (now - lastMexcBotScanTime) > 60000L) {
+                val globalCoins = _scannedCoins.value.filter { it.marketCap in range.first..range.second }
+                if (globalCoins.isNotEmpty()) {
+                    mexcBotScannedCoins = globalCoins
+                    lastMexcBotScanTime = now
+                    globalCoins
+                } else {
+                    addLog("🤖 [MEXC Bot] Scanning CoinGecko API markets (Min Cap: ${String.format(java.util.Locale.US, "%.0f", range.first)}, Max Cap: ${String.format(java.util.Locale.US, "%.0f", range.second)})...")
                     val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
                     mexcBotScannedCoins = fetched
                     lastMexcBotScanTime = now
                     fetched
-                } else {
-                    mexcBotScannedCoins
                 }
             }
 
@@ -1474,14 +1482,21 @@ class CryptoViewModel(
             // Get target coins independently of the manual scanner
             val range = getActiveMarketCapRange()
             val now = System.currentTimeMillis()
-            val coins = if (botScannedCoins.isEmpty() || (now - lastBotScanTime) > 60000L) {
-                addLog("🤖 [Auto Bot] Scanning CoinGecko API markets (Min Cap: ${String.format(java.util.Locale.US, "%.0f", range.first)}, Max Cap: ${String.format(java.util.Locale.US, "%.0f", range.second)})...")
-                val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
-                botScannedCoins = fetched
-                lastBotScanTime = now
-                fetched
-            } else {
+            val coins = if (botScannedCoins.isNotEmpty() && (now - lastBotScanTime) <= 60000L) {
                 botScannedCoins
+            } else {
+                val globalCoins = _scannedCoins.value.filter { it.marketCap in range.first..range.second }
+                if (globalCoins.isNotEmpty()) {
+                    botScannedCoins = globalCoins
+                    lastBotScanTime = now
+                    globalCoins
+                } else {
+                    addLog("🤖 [Auto Bot] Scanning CoinGecko API markets (Min Cap: ${String.format(java.util.Locale.US, "%.0f", range.first)}, Max Cap: ${String.format(java.util.Locale.US, "%.0f", range.second)})...")
+                    val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                    botScannedCoins = fetched
+                    lastBotScanTime = now
+                    fetched
+                }
             }
 
             if (coins.isEmpty()) return
