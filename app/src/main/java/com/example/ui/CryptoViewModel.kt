@@ -567,7 +567,8 @@ class CryptoViewModel(
                                 coin.currentPrice,
                                 prediction.stopLoss,
                                 prediction.takeProfit,
-                                prediction.signal
+                                prediction.signal,
+                                prediction.strategy
                             )
                             val savedSignal = SavedSignal(
                                 id = coin.id,
@@ -804,8 +805,8 @@ class CryptoViewModel(
     ): Boolean {
         if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
         
-        // Adjust SL and TP strictly using the configured Custom Risk-to-Reward Ratio
-        val (finalSl, finalTp) = adjustExitPricesForRatio(entryPrice, stopLoss, takeProfit, signalType)
+        // Adjust SL and TP strictly using the configured Custom Risk-to-Reward Ratio or Blueprint Overrides
+        val (finalSl, finalTp) = adjustExitPricesForRatio(entryPrice, stopLoss, takeProfit, signalType, strategy)
 
         val deducted = modifyCashBalance(-investedAmount)
         if (!deducted) {
@@ -852,8 +853,8 @@ class CryptoViewModel(
     ): Boolean {
         if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
 
-        // Adjust SL and TP strictly using the configured Custom Risk-to-Reward Ratio
-        val (finalSl, finalTp) = adjustExitPricesForRatio(entryPrice, stopLoss, takeProfit, signalType)
+        // Adjust SL and TP strictly using the configured Custom Risk-to-Reward Ratio or Blueprint Overrides
+        val (finalSl, finalTp) = adjustExitPricesForRatio(entryPrice, stopLoss, takeProfit, signalType, strategy)
 
         if (isDemo) {
             var success = true
@@ -1331,17 +1332,57 @@ class CryptoViewModel(
         addLog("🛡️ Configured Manual Take Profit: ${String.format(java.util.Locale.US, "%.1f", coerced)}%")
     }
 
+    fun getBlueprintCustomSL(blueprintTitle: String): Double? {
+        if (!prefs.contains("bp_sl_percent_$blueprintTitle")) return null
+        return prefs.getFloat("bp_sl_percent_$blueprintTitle", 2.0f).toDouble()
+    }
+
+    fun getBlueprintCustomTP(blueprintTitle: String): Double? {
+        if (!prefs.contains("bp_tp_percent_$blueprintTitle")) return null
+        return prefs.getFloat("bp_tp_percent_$blueprintTitle", 4.0f).toDouble()
+    }
+
+    fun setBlueprintCustomSL(blueprintTitle: String, value: Double?) {
+        if (value == null) {
+            prefs.edit().remove("bp_sl_percent_$blueprintTitle").apply()
+        } else {
+            prefs.edit().putFloat("bp_sl_percent_$blueprintTitle", value.toFloat()).apply()
+        }
+    }
+
+    fun setBlueprintCustomTP(blueprintTitle: String, value: Double?) {
+        if (value == null) {
+            prefs.edit().remove("bp_tp_percent_$blueprintTitle").apply()
+        } else {
+            prefs.edit().putFloat("bp_tp_percent_$blueprintTitle", value.toFloat()).apply()
+        }
+    }
+
     fun adjustExitPricesForRatio(
         entryPrice: Double,
         stopLoss: Double,
         takeProfit: Double,
-        signalType: String
+        signalType: String,
+        strategy: String = "Manual Position"
     ): Pair<Double, Double> {
         val isBuy = signalType.uppercase() == "LONG" || signalType.uppercase() == "BUY"
         
-        if (_useManualPercentages.value) {
-            val slPct = _manualStopLossPercent.value / 100.0
-            val tpPct = _manualTakeProfitPercent.value / 100.0
+        // 1. Check for specific blueprint custom override
+        val hasCustomSl = prefs.contains("bp_sl_percent_$strategy")
+        val hasCustomTp = prefs.contains("bp_tp_percent_$strategy")
+        
+        if (hasCustomSl || hasCustomTp || _useManualPercentages.value) {
+            val slPct = if (hasCustomSl) {
+                prefs.getFloat("bp_sl_percent_$strategy", 2.0f).toDouble() / 100.0
+            } else {
+                _manualStopLossPercent.value / 100.0
+            }
+            
+            val tpPct = if (hasCustomTp) {
+                prefs.getFloat("bp_tp_percent_$strategy", 4.0f).toDouble() / 100.0
+            } else {
+                _manualTakeProfitPercent.value / 100.0
+            }
             
             val finalSl = if (isBuy) {
                 entryPrice * (1.0 - slPct)

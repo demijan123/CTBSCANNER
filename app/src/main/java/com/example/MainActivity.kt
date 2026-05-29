@@ -47,7 +47,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Settings
@@ -462,7 +462,7 @@ fun MainDesktopDashboard(
                         2 -> Icons.Default.Favorite      // WATCHLIST
                         3 -> Icons.Default.Build         // BLUEPRINTS
                         4 -> Icons.Default.PlayArrow     // AUTO BOT
-                        5 -> Icons.Default.List          // PAPER TRADING
+                        5 -> Icons.AutoMirrored.Filled.List          // PAPER TRADING
                         6 -> Icons.Default.Settings      // MEXC CONFIG
                         7 -> Icons.Default.Star          // MEXC DEMO TRADES
                         8 -> Icons.Default.ShoppingCart  // MEXC LIVE TRADES
@@ -805,7 +805,7 @@ fun ScannerLiveProgressOverlay(
             }
             Spacer(modifier = Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = if (progress.isNaN() || progress.isInfinite()) 0f else progress.coerceIn(0f, 1f),
+                progress = { if (progress.isNaN() || progress.isInfinite()) 0f else progress.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
@@ -2035,6 +2035,122 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
+                        drawLine(
+                            color = CyberSurface,
+                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                            end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val useManual by viewModel.useManualPercentages.collectAsState()
+                    val manualSlPct by viewModel.manualStopLossPercent.collectAsState()
+                    val manualTpPct by viewModel.manualTakeProfitPercent.collectAsState()
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "GLOBAL MANUAL SL/TP OVERRIDES",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberGold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Override all blueprint percentages with manual defaults",
+                                fontSize = 8.sp,
+                                color = CyberTextDim
+                            )
+                        }
+                        Switch(
+                            checked = useManual,
+                            onCheckedChange = { viewModel.setUseManualPercentages(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = CyberAccentGreen,
+                                uncheckedThumbColor = CyberTextDim,
+                                uncheckedTrackColor = CyberSlate
+                            )
+                        )
+                    }
+
+                    if (useManual) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            var slInput by remember(manualSlPct) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualSlPct)) }
+                            var tpInput by remember(manualTpPct) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualTpPct)) }
+
+                            OutlinedTextField(
+                                value = slInput,
+                                onValueChange = { input ->
+                                    slInput = input
+                                    val parsed = input.toDoubleOrNull()
+                                    if (parsed != null && parsed >= 0.1 && parsed <= 50.0) {
+                                        viewModel.setManualStopLossPercent(parsed)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("blueprints_global_manual_sl_input")
+                                    .height(52.dp),
+                                label = { Text("Global SL % (0.1 - 50)", color = CyberTextDim, fontSize = 9.sp) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CyberAccentGreen,
+                                    unfocusedBorderColor = CyberSurface,
+                                    focusedTextColor = CyberTextWhite,
+                                    unfocusedTextColor = CyberTextWhite,
+                                    focusedContainerColor = CyberDark,
+                                    unfocusedContainerColor = CyberDark
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                )
+                            )
+
+                            OutlinedTextField(
+                                value = tpInput,
+                                onValueChange = { input ->
+                                    tpInput = input
+                                    val parsed = input.toDoubleOrNull()
+                                    if (parsed != null && parsed >= 0.1 && parsed <= 200.0) {
+                                        viewModel.setManualTakeProfitPercent(parsed)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("blueprints_global_manual_tp_input")
+                                    .height(52.dp),
+                                label = { Text("Global TP % (0.1 - 200)", color = CyberTextDim, fontSize = 9.sp) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = CyberAccentGreen,
+                                    unfocusedBorderColor = CyberSurface,
+                                    focusedTextColor = CyberTextWhite,
+                                    unfocusedTextColor = CyberTextWhite,
+                                    focusedContainerColor = CyberDark,
+                                    unfocusedContainerColor = CyberDark
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                )
+                            )
+                        }
+                    }
                 }
             }
 
@@ -2155,6 +2271,137 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(text = setup.description, fontSize = 12.sp, color = CyberTextWhite, lineHeight = 18.sp)
+                                
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                // Per-blueprint Custom Exit Percentages Overrides
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = CyberDark.copy(alpha = 0.5f)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "🔧 CUSTOM BLUEPRINT SL/TP OVERRIDES",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = CyberGold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                            
+                                            // Reset button if custom values are set
+                                            val currentCustomSl = viewModel.getBlueprintCustomSL(setup.title)
+                                            val currentCustomTp = viewModel.getBlueprintCustomTP(setup.title)
+                                            if (currentCustomSl != null || currentCustomTp != null) {
+                                                Text(
+                                                    text = "RESET TO GLOBAL",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = CyberAccentRed,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    modifier = Modifier
+                                                        .clickable {
+                                                            viewModel.setBlueprintCustomSL(setup.title, null)
+                                                            viewModel.setBlueprintCustomTP(setup.title, null)
+                                                        }
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                        
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            val customSlVal = viewModel.getBlueprintCustomSL(setup.title) ?: 2.0
+                                            val customTpVal = viewModel.getBlueprintCustomTP(setup.title) ?: 4.0
+                                            
+                                            var valSlStr by remember(customSlVal) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customSlVal)) }
+                                            var valTpStr by remember(customTpVal) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customTpVal)) }
+                                            
+                                            val isCustomSlSet = viewModel.getBlueprintCustomSL(setup.title) != null
+                                            val isCustomTpSet = viewModel.getBlueprintCustomTP(setup.title) != null
+                                            
+                                            OutlinedTextField(
+                                                value = valSlStr,
+                                                onValueChange = { input ->
+                                                    valSlStr = input
+                                                    val p = input.toDoubleOrNull()
+                                                    if (p != null && p >= 0.1 && p <= 50.0) {
+                                                        viewModel.setBlueprintCustomSL(setup.title, p)
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .testTag("bp_sl_override_${setup.title.replace(" ", "_").lowercase()}"),
+                                                label = { 
+                                                    Text(
+                                                        text = if (isCustomSlSet) "Custom SL %" else "SL: Global Default",
+                                                        fontSize = 9.sp,
+                                                        color = if (isCustomSlSet) CyberAccentGreen else CyberTextDim
+                                                    ) 
+                                                },
+                                                placeholder = { Text("2.0") },
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = CyberAccentGreen,
+                                                    unfocusedBorderColor = if (isCustomSlSet) CyberAccentGreen.copy(alpha = 0.5f) else CyberSurface,
+                                                    focusedTextColor = CyberTextWhite,
+                                                    unfocusedTextColor = CyberTextWhite,
+                                                    focusedContainerColor = CyberSlate.copy(alpha = 0.3f),
+                                                    unfocusedContainerColor = CyberSlate.copy(alpha = 0.3f)
+                                                ),
+                                                shape = RoundedCornerShape(8.dp),
+                                                singleLine = true,
+                                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                                )
+                                            )
+                                            
+                                            OutlinedTextField(
+                                                value = valTpStr,
+                                                onValueChange = { input ->
+                                                    valTpStr = input
+                                                    val p = input.toDoubleOrNull()
+                                                    if (p != null && p >= 0.1 && p <= 200.0) {
+                                                        viewModel.setBlueprintCustomTP(setup.title, p)
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .testTag("bp_tp_override_${setup.title.replace(" ", "_").lowercase()}"),
+                                                label = { 
+                                                    Text(
+                                                        text = if (isCustomTpSet) "Custom TP %" else "TP: Global Default",
+                                                        fontSize = 9.sp,
+                                                        color = if (isCustomTpSet) CyberAccentGreen else CyberTextDim
+                                                    ) 
+                                                },
+                                                placeholder = { Text("4.0") },
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = CyberAccentGreen,
+                                                    unfocusedBorderColor = if (isCustomTpSet) CyberAccentGreen.copy(alpha = 0.5f) else CyberSurface,
+                                                    focusedTextColor = CyberTextWhite,
+                                                    unfocusedTextColor = CyberTextWhite,
+                                                    focusedContainerColor = CyberSlate.copy(alpha = 0.3f),
+                                                    unfocusedContainerColor = CyberSlate.copy(alpha = 0.3f)
+                                                ),
+                                                shape = RoundedCornerShape(8.dp),
+                                                singleLine = true,
+                                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
                                 
                                 val lastResult = latestBacktestResults[setup.title]
                                 if (lastResult != null) {
@@ -2285,6 +2532,22 @@ fun BacktestSimulatorScreen(
     var leverage by remember { mutableStateOf(5) }
     var timeframeDays by remember { mutableStateOf(90) }
     val botSelectedBlueprints by viewModel.botSelectedBlueprints.collectAsState()
+
+    val initialCustomSl = viewModel.getBlueprintCustomSL(strategy.title)
+    val initialCustomTp = viewModel.getBlueprintCustomTP(strategy.title)
+    val isGlobalManual by viewModel.useManualPercentages.collectAsState()
+    val globalSl by viewModel.manualStopLossPercent.collectAsState()
+    val globalTp by viewModel.manualTakeProfitPercent.collectAsState()
+
+    // Determine backtest sl and tp defaults
+    val defaultBacktestSl = initialCustomSl ?: if (isGlobalManual) globalSl else 2.0
+    val defaultBacktestTp = initialCustomTp ?: if (isGlobalManual) globalTp else 4.0
+
+    var backtestSlVal by remember(defaultBacktestSl) { mutableStateOf(defaultBacktestSl) }
+    var backtestTpVal by remember(defaultBacktestTp) { mutableStateOf(defaultBacktestTp) }
+    
+    var backtestSlStr by remember(backtestSlVal) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", backtestSlVal)) }
+    var backtestTpStr by remember(backtestTpVal) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", backtestTpVal)) }
 
     LaunchedEffect(Unit) {
         // Automatically fetch updated, fresh coin market data when entering backtester
@@ -2560,6 +2823,78 @@ fun BacktestSimulatorScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(18.dp))
+
+                    Text(
+                        text = "MANUAL BACKTEST SL/TP OVERRIDES",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextWhite
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = backtestSlStr,
+                            onValueChange = { input ->
+                                backtestSlStr = input
+                                val p = input.toDoubleOrNull()
+                                if (p != null && p >= 0.1 && p <= 50.0) {
+                                    backtestSlVal = p
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("backtest_custom_sl_input")
+                                .height(52.dp),
+                            label = { Text("Manual Backtest SL %", color = CyberTextDim, fontSize = 9.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = backtestTpStr,
+                            onValueChange = { input ->
+                                backtestTpStr = input
+                                val p = input.toDoubleOrNull()
+                                if (p != null && p >= 0.1 && p <= 200.0) {
+                                    backtestTpVal = p
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("backtest_custom_tp_input")
+                                .height(52.dp),
+                            label = { Text("Manual Backtest TP %", color = CyberTextDim, fontSize = 9.sp) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                            )
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(20.dp))
 
                     Button(
@@ -2596,7 +2931,7 @@ fun BacktestSimulatorScreen(
                                 }
                                 
                                 val results = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                                    runBacktestCalculation(strategy.title, initialCapital, leverage, timeframeDays, selectedAsset, viewModel.scannedCoins.value)
+                                    runBacktestCalculation(strategy.title, initialCapital, leverage, timeframeDays, selectedAsset, viewModel.scannedCoins.value, backtestSlVal, backtestTpVal)
                                 }
                                 finalCapital = results.finalCapital
                                 roi = results.roi
@@ -3128,7 +3463,9 @@ fun runBacktestCalculation(
     leverage: Int,
     timeframeDays: Int,
     selectedAsset: String = "ALL",
-    scannedCoins: List<com.example.data.model.Coin> = emptyList()
+    scannedCoins: List<com.example.data.model.Coin> = emptyList(),
+    backtestSlPct: Double? = null,
+    backtestTpPct: Double? = null
 ): SimulationResult {
     val seed = (strategyTitle.hashCode() + leverage * 31 + timeframeDays * 17 + selectedAsset.hashCode()).toLong()
     val random = java.util.Random(seed)
@@ -3228,18 +3565,30 @@ fun runBacktestCalculation(
         
         val isWin = random.nextDouble() < finalWinRate
         
-        val changePctBase = if (isWin) {
-            avgWinPct + (random.nextDouble() * 0.05)
+        val changePctBase = if (backtestSlPct != null && backtestTpPct != null) {
+            if (isWin) {
+                backtestTpPct / 100.0
+            } else {
+                -(backtestSlPct / 100.0)
+            }
         } else {
-            avgLossPct - (random.nextDouble() * 0.02)
+            if (isWin) {
+                avgWinPct + (random.nextDouble() * 0.05)
+            } else {
+                avgLossPct - (random.nextDouble() * 0.02)
+            }
         }
         
         // Dynamic price volatility factor based on coin Geck data
-        val targetChangePct = if (matchingCoin != null) {
-            val volFactor = (kotlin.math.abs(coinPriceChange24h) / 100.0).coerceIn(0.01, 0.35)
-            changePctBase * (1.0 + volFactor)
-        } else {
+        val targetChangePct = if (backtestSlPct != null && backtestTpPct != null) {
             changePctBase
+        } else {
+            if (matchingCoin != null) {
+                val volFactor = (kotlin.math.abs(coinPriceChange24h) / 100.0).coerceIn(0.01, 0.35)
+                changePctBase * (1.0 + volFactor)
+            } else {
+                changePctBase
+            }
         }
         
         var leveragedChange = targetChangePct * leverage
@@ -8335,7 +8684,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                         // Expandable details block
                         if (isExpanded) {
                             Spacer(modifier = Modifier.height(10.dp))
-                            androidx.compose.material3.Divider(color = CyberSurface, thickness = 1.dp)
+                            androidx.compose.material3.HorizontalDivider(color = CyberSurface, thickness = 1.dp)
                             Spacer(modifier = Modifier.height(10.dp))
                             
                             // Grid of 4 parameter fields
