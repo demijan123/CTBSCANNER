@@ -6,39 +6,85 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Glowing Background Aura/Rays -->
+    <!-- Cyber matrix/glowing rays emanating from the bull -->
     <path
-        android:pathData="M54,15 L54,93 M15,54 L93,54"
+        android:pathData="M54,54 L54,10 M54,54 L94,22 M54,54 L94,86 M54,54 L14,86 M54,54 L14,22"
         android:strokeColor="#3310B981"
-        android:strokeWidth="2"
-        android:strokeLineCap="round"/>
-    
-    <path
-        android:pathData="M26,26 L82,82 M26,82 L82,26"
-        android:strokeColor="#2210B981"
-        android:strokeWidth="1"
+        android:strokeWidth="1.5"
         android:strokeLineCap="round"/>
 
-    <!-- Concentric Cyber Circle Nodes -->
+    <!-- Concentric glowing circle in center -->
     <path
-        android:pathData="M54,54 m-28,0 a28,28 0 1,1 56,0 a28,28 0 1,1 -56,0"
-        android:strokeColor="#44EAB308"
-        android:strokeWidth="1.5"
+        android:pathData="M54,54 m-30,0 a30,30 0 1,1 60,0 a30,30 0 1,1 -60,0"
+        android:strokeColor="#1F2937"
+        android:strokeWidth="4" />
+    <path
+        android:pathData="M54,54 m-30,0 a30,30 0 1,1 60,0 a30,30 0 1,1 -60,0"
+        android:strokeColor="#2210B981"
+        android:strokeWidth="1.5" />
+
+    <!-- Upward Breakout Golden Chevron behind the Bull Head -->
+    <path
+        android:pathData="M24,24 L54,4 L84,24"
+        android:strokeColor="#EAB308"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"/>
+    <path
+        android:pathData="M34,30 L54,16 L74,30"
+        android:strokeColor="#D97706"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
         android:strokeLineJoin="round"/>
 
-    <!-- Center Cyber Shield / Hexagon -->
+    <!-- Left Horn -->
     <path
-        android:pathData="M54,26 L80,36 L80,59 C80,75 54,84 54,84 C54,84 28,75 28,59 L28,36 Z"
-        android:strokeWidth="3.5"
+        android:pathData="M50,44 L28,34 L18,10 L30,18 L42,32 L46,40 Z"
+        android:strokeColor="#EAB308"
+        android:strokeWidth="1">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="18"
+                android:startY="10"
+                android:endX="50"
+                android:endY="44"
+                android:type="linear">
+                <item android:offset="0" android:color="#FDE047" />
+                <item android:offset="1" android:color="#CA8A04" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Right Horn (Mirrored) -->
+    <path
+        android:pathData="M58,44 L80,34 L90,10 L78,18 L66,32 L62,40 Z"
+        android:strokeColor="#EAB308"
+        android:strokeWidth="1">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="90"
+                android:startY="10"
+                android:endX="58"
+                android:endY="44"
+                android:type="linear">
+                <item android:offset="0" android:color="#FDE047" />
+                <item android:offset="1" android:color="#CA8A04" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Bull Cyber Skull / Head Shield -->
+    <path
+        android:pathData="M54,34 L40,46 L40,64 L48,80 L54,86 L60,80 L68,64 L68,46 Z"
         android:strokeColor="#10B981"
-        android:strokeLineJoin="round"
-        android:strokeLineCap="round">
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:startX="54"
-                android:startY="26"
+                android:startY="34"
                 android:endX="54"
-                android:endY="84"
+                android:endY="86"
                 android:type="linear">
                 <item android:offset="0" android:color="#1E293B" />
                 <item android:offset="1" android:color="#0F172A" />
@@ -46,38 +92,64 @@
         </aapt:attr>
     </path>
 
+    <!-- Inner Head Highlight Plate -->
     <path
-        android:pathData="M54,29 L76,38 L76,58 C76,71 54,79 54,79 C54,79 32,71 32,58 L32,38 Z"
-        android:strokeWidth="1"
-        android:strokeColor="#5510B981" />
+        android:pathData="M54,38 L44,48 L44,60 L54,72 L64,60 L64,48 Z"
+        android:fillColor="#1F2937"
+        android:strokeColor="#4410B981"
+        android:strokeWidth="1" />
 
-    <!-- Highly Stylized Upward Trending Arrow / Market Breakout (Gold) -->
+    <!-- Forehead Golden Diamond Crest -->
     <path
-        android:pathData="M38,64 L48,54 L44,52 L54,42"
-        android:strokeColor="#EAB308"
-        android:strokeWidth="4.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+        android:pathData="M54,38 L47,46 L54,54 L61,46 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="38"
+                android:endX="54"
+                android:endY="54"
+                android:type="linear">
+                <item android:offset="0" android:color="#FDE047" />
+                <item android:offset="1" android:color="#EAB308" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
+    <!-- Left Cheek/Jaw Line -->
     <path
-        android:pathData="M54,42 L70,42 M70,42 L70,58"
-        android:strokeColor="#EAB308"
-        android:strokeWidth="4.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+        android:pathData="M40,54 L32,60 L24,60"
+        android:strokeColor="#10B981"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
 
-    <!-- Connecting glowing digital node points in corners -->
+    <!-- Right Cheek/Jaw Line (Mirrored) -->
     <path
-        android:pathData="M54,20 m-3,0 a3,3 0 1,1 6,0 a3,3 0 1,1 -6,0"
-        android:fillColor="#EAB308" />
+        android:pathData="M68,54 L76,60 L84,60"
+        android:strokeColor="#10B981"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+
+    <!-- Glowing Cyber Eyes -->
+    <!-- Left Eye -->
     <path
-        android:pathData="M21,54 m-2.5,0 a2.5,2.5 0 1,1 5,0 a2.5,2.5 0 1,1 -5,0"
-        android:fillColor="#10B981" />
+        android:pathData="M45,55 L49,57 L47,60 L43,58 Z"
+        android:fillColor="#EF4444" /> <!-- Crimson Red Glowing Eyes for fierce bullish power! -->
+    
+    <!-- Right Eye -->
     <path
-        android:pathData="M87,54 m-2.5,0 a2.5,2.5 0 1,1 5,0 a2.5,2.5 0 1,1 -5,0"
-        android:fillColor="#10B981" />
+        android:pathData="M63,55 L59,57 L61,60 L65,58 Z"
+        android:fillColor="#EF4444" />
+
+    <!-- Core nose line -->
     <path
-        android:pathData="M54,90 m-2.5,0 a2.5,2.5 0 1,1 5,0 a2.5,2.5 0 1,1 -5,0"
+        android:pathData="M54,54 L54,78"
+        android:strokeColor="#64748B"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round" />
+        
+    <!-- Muzzle Tech Plate -->
+    <path
+        android:pathData="M54,76 L48,80 L54,84 L60,80 Z"
         android:fillColor="#10B981" />
 
 </vector>

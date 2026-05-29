@@ -71,6 +71,9 @@ class CryptoViewModel(
     private val _botTradeSize = MutableStateFlow(prefs.getFloat("bot_trade_size", 1000f).toDouble())
     val botTradeSize: StateFlow<Double> = _botTradeSize.asStateFlow()
 
+    private val _customRiskRewardRatio = MutableStateFlow(prefs.getFloat("custom_risk_reward_ratio", 2.0f).toDouble())
+    val customRiskRewardRatio: StateFlow<Double> = _customRiskRewardRatio.asStateFlow()
+
     private val _botTargetCoinMode = MutableStateFlow(prefs.getString("bot_target_coin_mode", "ALL") ?: "ALL")
     val botTargetCoinMode: StateFlow<String> = _botTargetCoinMode.asStateFlow()
 
@@ -551,6 +554,12 @@ class CryptoViewModel(
                     
                     if (prediction.signal == "LONG" || prediction.signal == "SHORT") {
                         if (prediction.confidence >= 85) {
+                            val (customSl, customTp) = adjustExitPricesForRatio(
+                                coin.currentPrice,
+                                prediction.stopLoss,
+                                prediction.takeProfit,
+                                prediction.signal
+                            )
                             val savedSignal = SavedSignal(
                                 id = coin.id,
                                 symbol = coin.symbol,
@@ -562,8 +571,8 @@ class CryptoViewModel(
                                 signal = prediction.signal,
                                 confidence = prediction.confidence,
                                 strategy = prediction.strategy,
-                                stopLoss = prediction.stopLoss,
-                                takeProfit = prediction.takeProfit,
+                                stopLoss = customSl,
+                                takeProfit = customTp,
                                 rationale = prediction.rationale,
                                 isBookmarked = false
                             )
@@ -786,6 +795,9 @@ class CryptoViewModel(
     ): Boolean {
         if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
         
+        // Adjust SL and TP strictly using the configured Custom Risk-to-Reward Ratio
+        val (finalSl, finalTp) = adjustExitPricesForRatio(entryPrice, stopLoss, takeProfit, signalType)
+
         val deducted = modifyCashBalance(-investedAmount)
         if (!deducted) {
             _error.value = "Insufficient paper trading capital"
@@ -802,8 +814,8 @@ class CryptoViewModel(
                     image = image,
                     signalType = signalType,
                     entryPrice = entryPrice,
-                    stopLoss = stopLoss,
-                    takeProfit = takeProfit,
+                    stopLoss = finalSl,
+                    takeProfit = finalTp,
                     investedAmount = investedAmount,
                     strategy = strategy,
                     isMexc = false,
@@ -830,6 +842,9 @@ class CryptoViewModel(
         isDemo: Boolean
     ): Boolean {
         if (investedAmount <= 0.0 || entryPrice <= 0.0) return false
+
+        // Adjust SL and TP strictly using the configured Custom Risk-to-Reward Ratio
+        val (finalSl, finalTp) = adjustExitPricesForRatio(entryPrice, stopLoss, takeProfit, signalType)
 
         if (isDemo) {
             var success = true
@@ -859,8 +874,8 @@ class CryptoViewModel(
                         image = image,
                         signalType = signalType,
                         entryPrice = entryPrice,
-                        stopLoss = stopLoss,
-                        takeProfit = takeProfit,
+                        stopLoss = finalSl,
+                        takeProfit = finalTp,
                         investedAmount = investedAmount,
                         strategy = strategy,
                         isMexc = true,
@@ -898,8 +913,8 @@ class CryptoViewModel(
                         image = image,
                         signalType = signalType,
                         entryPrice = entryPrice,
-                        stopLoss = stopLoss,
-                        takeProfit = takeProfit,
+                        stopLoss = finalSl,
+                        takeProfit = finalTp,
                         investedAmount = investedAmount,
                         strategy = strategy,
                         isMexc = true,
@@ -1278,6 +1293,44 @@ class CryptoViewModel(
     fun saveBotTradeSize(size: Double) {
         prefs.edit().putFloat("bot_trade_size", size.toFloat()).apply()
         addLog("🤖 Configured Allocation Size Per Position: $${String.format(java.util.Locale.US, "%.2f", size)}")
+    }
+
+    fun setCustomRiskRewardRatio(ratio: Double) {
+        val coerced = ratio.coerceIn(1.0, 10.0)
+        _customRiskRewardRatio.value = coerced
+        prefs.edit().putFloat("custom_risk_reward_ratio", coerced.toFloat()).apply()
+        addLog("🛡️ Configured Custom Risk-to-Reward Ratio: ${String.format(java.util.Locale.US, "%.1f", coerced)}:1")
+    }
+
+    fun adjustExitPricesForRatio(
+        entryPrice: Double,
+        stopLoss: Double,
+        takeProfit: Double,
+        signalType: String
+    ): Pair<Double, Double> {
+        val ratio = _customRiskRewardRatio.value
+        val isBuy = signalType == "LONG"
+        
+        var riskAmount = Math.abs(entryPrice - stopLoss)
+        if (riskAmount <= 0.0 || stopLoss <= 0.0 || entryPrice <= 0.0 || riskAmount >= entryPrice) {
+            riskAmount = entryPrice * 0.05
+        }
+        
+        val adjustedStopLoss = if (isBuy) {
+            entryPrice - riskAmount
+        } else {
+            entryPrice + riskAmount
+        }
+        
+        val adjustedTakeProfit = if (isBuy) {
+            entryPrice + (riskAmount * ratio)
+        } else {
+            entryPrice - (riskAmount * ratio)
+        }
+        
+        val finalSl = adjustedStopLoss.coerceAtLeast(0.000001)
+        val finalTp = adjustedTakeProfit.coerceAtLeast(0.000001)
+        return Pair(finalSl, finalTp)
     }
 
     fun setBotTargetCoinMode(mode: String) {

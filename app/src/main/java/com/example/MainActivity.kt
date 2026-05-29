@@ -246,6 +246,25 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
+        if (BuildConfig.DEBUG) {
+            val builder = android.os.StrictMode.ThreadPolicy.Builder()
+                .detectNetwork()
+                .penaltyLog()
+            
+            val isRobolectricTest = try {
+                Class.forName("org.robolectric.Robolectric")
+                true
+            } catch (e: Exception) {
+                false
+            }
+            
+            if (!isRobolectricTest) {
+                builder.detectDiskReads().detectDiskWrites()
+            }
+            
+            android.os.StrictMode.setThreadPolicy(builder.build())
+        }
+
         val db = AppDatabase.getDatabase(this)
         val repository = CryptoRepository(db.coinDao(), db.paperTradeDao())
         val factory = CryptoViewModelFactory(application, repository)
@@ -372,6 +391,7 @@ fun MainDesktopDashboard(
     var selectedCoinForDetails by remember { mutableStateOf<Coin?>(null) }
     var showExitNotice by remember { mutableStateOf(false) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     androidx.activity.compose.BackHandler(enabled = true) {
         if (selectedCoinForDetails != null) {
             selectedCoinForDetails = null
@@ -379,6 +399,7 @@ fun MainDesktopDashboard(
             selectedTab = 0
         } else {
             showExitNotice = true
+            (context as? android.app.Activity)?.moveTaskToBack(true)
         }
     }
 
@@ -5863,6 +5884,77 @@ fun OldAutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                         ) {
                             Text(
                                 text = "$${formatCurrency(botTradeSize)}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberAccentGreen
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // C: Custom Risk-to-Reward Ratio Input Configuration
+                    Text(
+                        text = "CUSTOM RISK-TO-REWARD RATIO (REWARD : RISK)",
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextDim
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        val customRR by viewModel.customRiskRewardRatio.collectAsState()
+                        var rrInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customRR)) }
+                        var isRrFocused by remember { mutableStateOf(false) }
+                        LaunchedEffect(customRR) {
+                            if (!isRrFocused) {
+                                rrInput = String.format(java.util.Locale.US, "%.1f", customRR)
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = rrInput,
+                            onValueChange = { newValue ->
+                                rrInput = newValue
+                                val parsed = newValue.toDoubleOrNull()
+                                if (parsed != null && parsed >= 1.0 && parsed <= 10.0) {
+                                    viewModel.setCustomRiskRewardRatio(parsed)
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged { isRrFocused = it.isFocused }
+                                .testTag("bot_custom_rr_input"),
+                            label = { Text("Ratio (1.0 - 10.0)", color = CyberTextDim, fontSize = 11.sp) },
+                            placeholder = { Text("2.0", color = CyberTextDim.copy(alpha = 0.5f)) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedLabelColor = CyberAccentGreen,
+                                unfocusedLabelColor = CyberTextDim,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                            )
+                        )
+                        Box(
+                            modifier = Modifier
+                                .background(CyberSlate, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "${String.format(java.util.Locale.US, "%.1f", customRR)} : 1.0",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = CyberAccentGreen

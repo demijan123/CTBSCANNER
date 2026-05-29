@@ -135,8 +135,8 @@ class CryptoRepository(
         val isExhaustionRally = changePercentage > 8.0 && relativeVolume < 0.6
         val isWyckoffSpring = (changePercentage in -4.0..-0.1) && relativeVolume > 1.4
         val isEmaContinuation = (changePercentage in 4.0..10.0) && relativeVolume > 1.3
-        val isMacdDivergence = (changePercentage in 1.0..6.0) && relativeVolume in 0.65..1.0 && (coin.name.hashCode() % 2 == 0)
-        val isOrderBlockSweep = (changePercentage in -9.5..-4.0) && (coin.name.hashCode() % 3 == 0)
+        val isMacdDivergence = (changePercentage in 1.0..6.0) && relativeVolume >= 0.65
+        val isOrderBlockSweep = (changePercentage in -9.5..-4.0)
 
         val activeStrategies = mutableListOf<String>()
         if (isOversold) activeStrategies.add("Mean Reversion & Oversold Bounce")
