@@ -1802,6 +1802,10 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
         var directionFilter by remember { mutableStateOf("ALL") }
         var conditionFilter by remember { mutableStateOf("ALL") }
 
+        val useManual by viewModel.useManualPercentages.collectAsState()
+        val manualSlPct by viewModel.manualStopLossPercent.collectAsState()
+        val manualTpPct by viewModel.manualTakeProfitPercent.collectAsState()
+
         val blueprints = listOf(
             StrategyBlueprint(
                 title = "EMA Continuation Cross (V3)",
@@ -1927,269 +1931,283 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
             (conditionFilter == "ALL" || bp.marketCondition == conditionFilter)
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            // CENTRAL FILTER DASHBOARD
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                colors = CardDefaults.cardColors(containerColor = CyberDark.copy(alpha = 0.6f)),
-                shape = RoundedCornerShape(16.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "QUANT-STRATEGY CONTROL CENTERS",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = CyberGold,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 1.sp
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
+        val overrideTrigger by viewModel.blueprintOverrideTrigger.collectAsState()
 
-                    // DIRECTION FILTERS
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("blueprints_list"),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                // CENTRAL FILTER DASHBOARD
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    colors = CardDefaults.cardColors(containerColor = CyberDark.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
                         Text(
-                            text = "DIRECTION:",
-                            fontSize = 8.sp,
+                            text = "QUANT-STRATEGY CONTROL CENTERS",
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
-                            color = CyberTextDim,
+                            color = CyberGold,
                             fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(72.dp)
+                            letterSpacing = 1.sp
                         )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            listOf("ALL" to "ALL DIRECTIONS", "LONG" to "LONG ONLY", "SHORT" to "SHORT ONLY").forEach { (code, label) ->
-                                val active = directionFilter == code
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (active) (if (code == "LONG") CyberAccentGreen.copy(alpha = 0.25f) else if (code == "SHORT") CyberAccentRed.copy(alpha = 0.25f) else CyberSurface) else CyberDark)
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (active) (if (code == "LONG") CyberAccentGreen else if (code == "SHORT") CyberAccentRed else CyberGold) else Color.Transparent,
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .clickable { directionFilter = code }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                                ) {
-                                    Text(
-                                        text = label,
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (active) CyberTextWhite else CyberTextDim,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // MARKET PROFILE FILTERS
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "MARKET TYPE:",
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = CyberTextDim,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(72.dp)
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            listOf("ALL" to "ALL CONDITIONS", "Trending" to "TRENDING", "Choppy" to "CHOPPY", "Sideways" to "SIDEWAYS").forEach { (code, label) ->
-                                val active = conditionFilter == code
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (active) CyberSurface else CyberDark)
-                                        .border(
-                                            width = 1.dp,
-                                            color = if (active) CyberGold else Color.Transparent,
-                                            shape = RoundedCornerShape(6.dp)
-                                        )
-                                        .clickable { conditionFilter = code }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp)
-                                ) {
-                                    Text(
-                                        text = label,
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (active) CyberTextWhite else CyberTextDim,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
-                        drawLine(
-                            color = CyberSurface,
-                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                            end = androidx.compose.ui.geometry.Offset(size.width, 0f),
-                            strokeWidth = 1.dp.toPx()
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val useManual by viewModel.useManualPercentages.collectAsState()
-                    val manualSlPct by viewModel.manualStopLossPercent.collectAsState()
-                    val manualTpPct by viewModel.manualTakeProfitPercent.collectAsState()
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "GLOBAL MANUAL SL/TP OVERRIDES",
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = CyberGold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Override all blueprint percentages with manual defaults",
-                                fontSize = 8.sp,
-                                color = CyberTextDim
-                            )
-                        }
-                        Switch(
-                            checked = useManual,
-                            onCheckedChange = { viewModel.setUseManualPercentages(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = CyberAccentGreen,
-                                uncheckedThumbColor = CyberTextDim,
-                                uncheckedTrackColor = CyberSlate
-                            )
-                        )
-                    }
-
-                    if (useManual) {
                         Spacer(modifier = Modifier.height(10.dp))
+
+                        // DIRECTION FILTERS
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            var slInput by remember(manualSlPct) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualSlPct)) }
-                            var tpInput by remember(manualTpPct) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualTpPct)) }
-
-                            OutlinedTextField(
-                                value = slInput,
-                                onValueChange = { input ->
-                                    slInput = input
-                                    val parsed = input.toDoubleOrNull()
-                                    if (parsed != null && parsed >= 0.1 && parsed <= 50.0) {
-                                        viewModel.setManualStopLossPercent(parsed)
+                            Text(
+                                text = "DIRECTION:",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberTextDim,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.width(72.dp)
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                listOf("ALL" to "ALL DIRECTIONS", "LONG" to "LONG ONLY", "SHORT" to "SHORT ONLY").forEach { (code, label) ->
+                                    val active = directionFilter == code
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (active) (if (code == "LONG") CyberAccentGreen.copy(alpha = 0.25f) else if (code == "SHORT") CyberAccentRed.copy(alpha = 0.25f) else CyberSurface) else CyberDark)
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (active) (if (code == "LONG") CyberAccentGreen else if (code == "SHORT") CyberAccentRed else CyberGold) else Color.Transparent,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { directionFilter = code }
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (active) CyberTextWhite else CyberTextDim,
+                                            fontFamily = FontFamily.Monospace
+                                        )
                                     }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("blueprints_global_manual_sl_input")
-                                    .height(52.dp),
-                                label = { Text("Global SL % (0.1 - 50)", color = CyberTextDim, fontSize = 9.sp) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = CyberAccentGreen,
-                                    unfocusedBorderColor = CyberSurface,
-                                    focusedTextColor = CyberTextWhite,
-                                    unfocusedTextColor = CyberTextWhite,
-                                    focusedContainerColor = CyberDark,
-                                    unfocusedContainerColor = CyberDark
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                singleLine = true,
-                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // MARKET PROFILE FILTERS
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "MARKET TYPE:",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberTextDim,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.width(72.dp)
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                listOf("ALL" to "ALL CONDITIONS", "Trending" to "TRENDING", "Choppy" to "CHOPPY", "Sideways" to "SIDEWAYS").forEach { (code, label) ->
+                                    val active = conditionFilter == code
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (active) CyberSurface else CyberDark)
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (active) CyberGold else Color.Transparent,
+                                                shape = RoundedCornerShape(6.dp)
+                                            )
+                                            .clickable { conditionFilter = code }
+                                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (active) CyberTextWhite else CyberTextDim,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxWidth().height(1.dp)) {
+                            drawLine(
+                                color = CyberSurface,
+                                start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                strokeWidth = 1.dp.toPx()
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "GLOBAL MANUAL SL/TP OVERRIDES",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = CyberGold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Override all blueprint percentages with manual defaults",
+                                    fontSize = 8.sp,
+                                    color = CyberTextDim
+                                )
+                            }
+                            Switch(
+                                checked = useManual,
+                                onCheckedChange = { viewModel.setUseManualPercentages(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = CyberAccentGreen,
+                                    uncheckedThumbColor = CyberTextDim,
+                                    uncheckedTrackColor = CyberSlate
                                 )
                             )
+                        }
 
-                            OutlinedTextField(
-                                value = tpInput,
-                                onValueChange = { input ->
-                                    tpInput = input
-                                    val parsed = input.toDoubleOrNull()
-                                    if (parsed != null && parsed >= 0.1 && parsed <= 200.0) {
-                                        viewModel.setManualTakeProfitPercent(parsed)
+                        if (useManual) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                var slInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualSlPct)) }
+                                var tpInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", manualTpPct)) }
+
+                                LaunchedEffect(manualSlPct) {
+                                    val parsed = slInput.toDoubleOrNull()
+                                    if (parsed != manualSlPct) {
+                                        slInput = String.format(java.util.Locale.US, "%.1f", manualSlPct)
                                     }
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("blueprints_global_manual_tp_input")
-                                    .height(52.dp),
-                                label = { Text("Global TP % (0.1 - 200)", color = CyberTextDim, fontSize = 9.sp) },
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = CyberAccentGreen,
-                                    unfocusedBorderColor = CyberSurface,
-                                    focusedTextColor = CyberTextWhite,
-                                    unfocusedTextColor = CyberTextWhite,
-                                    focusedContainerColor = CyberDark,
-                                    unfocusedContainerColor = CyberDark
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                                singleLine = true,
-                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                }
+
+                                LaunchedEffect(manualTpPct) {
+                                    val parsed = tpInput.toDoubleOrNull()
+                                    if (parsed != manualTpPct) {
+                                        tpInput = String.format(java.util.Locale.US, "%.1f", manualTpPct)
+                                    }
+                                }
+
+                                OutlinedTextField(
+                                    value = slInput,
+                                    onValueChange = { input ->
+                                        slInput = input
+                                        val parsed = input.toDoubleOrNull()
+                                        if (parsed != null && parsed >= 0.1 && parsed <= 50.0) {
+                                            viewModel.setManualStopLossPercent(parsed)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(64.dp)
+                                        .testTag("blueprints_global_manual_sl_input"),
+                                    label = { Text("Global SL % (0.1 - 50)", color = CyberTextDim, fontSize = 9.sp) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = CyberAccentGreen,
+                                        unfocusedBorderColor = CyberSurface,
+                                        focusedTextColor = CyberTextWhite,
+                                        unfocusedTextColor = CyberTextWhite,
+                                        focusedContainerColor = CyberDark,
+                                        unfocusedContainerColor = CyberDark
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                    )
                                 )
-                            )
+
+                                OutlinedTextField(
+                                    value = tpInput,
+                                    onValueChange = { input ->
+                                        tpInput = input
+                                        val parsed = input.toDoubleOrNull()
+                                        if (parsed != null && parsed >= 0.1 && parsed <= 200.0) {
+                                            viewModel.setManualTakeProfitPercent(parsed)
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(64.dp)
+                                        .testTag("blueprints_global_manual_tp_input"),
+                                    label = { Text("Global TP % (0.1 - 200)", color = CyberTextDim, fontSize = 9.sp) },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = CyberAccentGreen,
+                                        unfocusedBorderColor = CyberSurface,
+                                        focusedTextColor = CyberTextWhite,
+                                        unfocusedTextColor = CyberTextWhite,
+                                        focusedContainerColor = CyberDark,
+                                        unfocusedContainerColor = CyberDark
+                                    ),
+                                    shape = RoundedCornerShape(10.dp),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                    )
+                                )
+                            }
                         }
                     }
                 }
             }
 
             if (filteredBlueprints.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            tint = CyberTextDim,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "No strategies align with selected filters.",
-                            color = CyberTextDim,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 48.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                tint = CyberTextDim,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "No strategies align with selected filters.",
+                                color = CyberTextDim,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .testTag("blueprints_list"),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(filteredBlueprints) { setup ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = CyberCard),
-                            shape = RoundedCornerShape(24.dp),
+                items(filteredBlueprints) { setup ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = CyberCard),
+                        shape = RoundedCornerShape(24.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
                         ) {
                             Column(modifier = Modifier.padding(18.dp)) {
@@ -2321,11 +2339,29 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            val customSlVal = viewModel.getBlueprintCustomSL(setup.title) ?: 2.0
-                                            val customTpVal = viewModel.getBlueprintCustomTP(setup.title) ?: 4.0
+                                            val customSlVal = remember(useManual, manualSlPct, overrideTrigger) {
+                                                viewModel.getBlueprintCustomSL(setup.title) ?: (if (useManual) manualSlPct else 2.0)
+                                            }
+                                            val customTpVal = remember(useManual, manualTpPct, overrideTrigger) {
+                                                viewModel.getBlueprintCustomTP(setup.title) ?: (if (useManual) manualTpPct else 4.0)
+                                            }
                                             
-                                            var valSlStr by remember(customSlVal) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customSlVal)) }
-                                            var valTpStr by remember(customTpVal) { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customTpVal)) }
+                                            var valSlStr by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customSlVal)) }
+                                            var valTpStr by remember { mutableStateOf(String.format(java.util.Locale.US, "%.1f", customTpVal)) }
+
+                                            LaunchedEffect(customSlVal) {
+                                                val parsed = valSlStr.toDoubleOrNull()
+                                                if (parsed != customSlVal) {
+                                                    valSlStr = String.format(java.util.Locale.US, "%.1f", customSlVal)
+                                                }
+                                            }
+
+                                            LaunchedEffect(customTpVal) {
+                                                val parsed = valTpStr.toDoubleOrNull()
+                                                if (parsed != customTpVal) {
+                                                    valTpStr = String.format(java.util.Locale.US, "%.1f", customTpVal)
+                                                }
+                                            }
                                             
                                             val isCustomSlSet = viewModel.getBlueprintCustomSL(setup.title) != null
                                             val isCustomTpSet = viewModel.getBlueprintCustomTP(setup.title) != null
@@ -2341,6 +2377,7 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
                                                 },
                                                 modifier = Modifier
                                                     .weight(1f)
+                                                    .height(64.dp)
                                                     .testTag("bp_sl_override_${setup.title.replace(" ", "_").lowercase()}"),
                                                 label = { 
                                                     Text(
@@ -2376,6 +2413,7 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
                                                 },
                                                 modifier = Modifier
                                                     .weight(1f)
+                                                    .height(64.dp)
                                                     .testTag("bp_tp_override_${setup.title.replace(" ", "_").lowercase()}"),
                                                 label = { 
                                                     Text(
@@ -2517,7 +2555,6 @@ fun StrategyBlueprintsTab(viewModel: CryptoViewModel, latestBacktestResults: Mut
             }
         }
     }
-}
 
 @Composable
 fun BacktestSimulatorScreen(

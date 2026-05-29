@@ -1340,6 +1340,9 @@ class CryptoViewModel(
         addLog("🛡️ Configured Manual Take Profit: ${String.format(java.util.Locale.US, "%.1f", coerced)}%")
     }
 
+    private val _blueprintOverrideTrigger = MutableStateFlow(0L)
+    val blueprintOverrideTrigger: StateFlow<Long> = _blueprintOverrideTrigger.asStateFlow()
+
     fun getBlueprintCustomSL(blueprintTitle: String): Double? {
         if (!prefs.contains("bp_sl_percent_$blueprintTitle")) return null
         return prefs.getFloat("bp_sl_percent_$blueprintTitle", 2.0f).toDouble()
@@ -1356,6 +1359,7 @@ class CryptoViewModel(
         } else {
             prefs.edit().putFloat("bp_sl_percent_$blueprintTitle", value.toFloat()).apply()
         }
+        _blueprintOverrideTrigger.value++
     }
 
     fun setBlueprintCustomTP(blueprintTitle: String, value: Double?) {
@@ -1364,6 +1368,7 @@ class CryptoViewModel(
         } else {
             prefs.edit().putFloat("bp_tp_percent_$blueprintTitle", value.toFloat()).apply()
         }
+        _blueprintOverrideTrigger.value++
     }
 
     fun adjustExitPricesForRatio(
