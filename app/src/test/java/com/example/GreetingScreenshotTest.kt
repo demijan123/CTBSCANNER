@@ -129,4 +129,22 @@ class GreetingScreenshotTest {
     }
     composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/mexc_live_trades_rendered.png")
   }
+
+  @Test
+  fun test_trade_analytics_tab_rendering() {
+    val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>() as android.app.Application
+    val db = com.example.data.local.AppDatabase.getDatabase(context)
+    val repository = com.example.data.repository.CryptoRepository(db.coinDao(), db.paperTradeDao())
+    val viewModel = com.example.ui.CryptoViewModel(context, repository)
+
+    composeTestRule.setContent {
+      MyApplicationTheme {
+        TradeAnalyticsTab(viewModel = viewModel)
+      }
+    }
+    composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/trade_analytics_rendered.png")
+
+    // Find and click the export button
+    composeTestRule.onNodeWithTag("system_sharing_compliance_card").performClick()
+  }
 }
