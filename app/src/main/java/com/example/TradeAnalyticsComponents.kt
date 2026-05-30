@@ -29,6 +29,127 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.PaperTrade
 import com.example.ui.AiCruncherMode
 import com.example.ui.CryptoViewModel
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
+import androidx.compose.ui.platform.LocalContext
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private fun shareToWhatsApp(context: Context, text: String) {
+    try {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        intent.setPackage("com.whatsapp")
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val businessIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    setPackage("com.whatsapp.w4b")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(businessIntent)
+            } catch (ex: Exception) {
+                val baseIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                }
+                val chooser = Intent.createChooser(baseIntent, "Share Report via").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            }
+        }
+    } catch (t: Throwable) {
+        android.widget.Toast.makeText(context, "Error sharing: ${t.message}", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun shareTextSystem(context: Context, text: String, title: String) {
+    try {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        val chooser = Intent.createChooser(intent, "Share $title via").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
+    } catch (t: Throwable) {
+        android.widget.Toast.makeText(context, "Error sharing: ${t.message}", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun escapeCsvField(field: String): String {
+    val clean = field.replace("\"", "\"\"")
+    return if (clean.contains(",") || clean.contains("\n") || clean.contains("\"")) {
+        "\"$clean\""
+    } else {
+        clean
+    }
+}
+
+private fun exportTradesToCsvAndShare(context: Context, openTrades: List<PaperTrade>, closedTrades: List<PaperTrade>) {
+    try {
+        val allTrades = (openTrades + closedTrades).sortedByDescending { it.timestamp }
+        val header = "Trade ID,Status,Symbol,Type,Strategy,Timeframe,Quantity,Invested Amount (USD),Entry Price (USD),Current Price (USD),Exit Price (USD),Realized P&L (USD),Execution Date,Exit Date,Justification\n"
+        
+        val dateFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        val sb = StringBuilder(header)
+        
+        for (tr in allTrades) {
+            val row = listOf(
+                tr.id.toString(),
+                tr.status,
+                tr.symbol.uppercase(),
+                tr.signalType,
+                tr.strategy,
+                tr.timeframe,
+                String.format(Locale.US, "%.6f", tr.quantity),
+                String.format(Locale.US, "%.2f", tr.investedAmount),
+                String.format(Locale.US, "%.4f", tr.entryPrice),
+                String.format(Locale.US, "%.4f", tr.currentPrice),
+                tr.exitPrice?.let { String.format(Locale.US, "%.4f", it) } ?: "",
+                String.format(Locale.US, "%.2f", tr.pnl),
+                dateFmt.format(Date(tr.timestamp)),
+                tr.exitTimestamp?.let { dateFmt.format(Date(it)) } ?: "",
+                tr.whyTradeReason
+            )
+            sb.append(row.joinToString(",") { escapeCsvField(it) }).append("\n")
+        }
+        
+        val file = File(context.cacheDir, "crypto_trades_journal.csv")
+        file.writeText(sb.toString())
+        
+        val uri: Uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+        
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, "Crypto System Trade Journal Export")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(shareIntent, "Share Journal Excel CSV via").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Export Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+    }
+}
 
 @Composable
 fun MarkdownText(text: String, color: Color = CyberTextWhite) {
@@ -384,9 +505,11 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
 @Composable
 fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
     val closedTrades by viewModel.closedTrades.collectAsState()
+    val openTrades by viewModel.openTrades.collectAsState()
     val selectedAiMode by viewModel.selectedAiMode.collectAsState()
     val aiInsights by viewModel.aiInsights.collectAsState()
     val isGeneratingAiInsights by viewModel.isGeneratingAiInsights.collectAsState()
+    val context = LocalContext.current
 
     val total = closedTrades.size
     val wins = closedTrades.filter { it.pnl > 0.0 }.size
@@ -467,6 +590,66 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text("NET REVENUE", fontSize = 8.sp, color = CyberTextDim)
                         Text("$${formatCurrency(totalRevenue)}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (totalRevenue >= 0) CyberAccentGreen else CyberAccentRed)
+                    }
+                }
+            }
+        }
+
+        // --- DATA SHARING & COMPLIANCE GATEWAY ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("system_sharing_compliance_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "📤 DATA JOURNAL & AUDIT ROADWAY",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberGold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Export every logged trade in customized high-precision Excel spreadsheets (.csv format) for compliance reviews, or direct message them.",
+                        color = CyberTextDim,
+                        fontSize = 10.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Button(
+                        onClick = { exportTradesToCsvAndShare(context, openTrades, closedTrades) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "SHARE WORKBOOK REPORT (EXCEL CSV)",
+                            color = CyberAccentGreen,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    if (aiInsights.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = { shareToWhatsApp(context, "🤖 CYBER AI BRAIN ADVISORY UNIT REPORT [${selectedAiMode.title.uppercase()}]\n\n$aiInsights") },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = "SHARE ACTIVE AI REPORT ON WHATSAPP",
+                                color = CyberGold,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -591,6 +774,28 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                         }
                         Spacer(modifier = Modifier.height(12.dp))
                         MarkdownText(text = aiInsights)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = { shareToWhatsApp(context, "🤖 CYBER AI BRAIN ADVISORY UNIT REPORT [${selectedAiMode.title.uppercase()}]\n\n$aiInsights") },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("WHATSAPP SHARE", color = CyberAccentGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
+                            Button(
+                                onClick = { shareTextSystem(context, "🤖 CYBER AI BRAIN ADVISORY UNIT REPORT [${selectedAiMode.title.uppercase()}]\n\n$aiInsights", "AI Audit Report") },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("SYSTEM SHARE", color = CyberGold, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            }
+                        }
                     }
                 }
             }
