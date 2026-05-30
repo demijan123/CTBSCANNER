@@ -144,7 +144,7 @@ class GreetingScreenshotTest {
     }
     composeTestRule.onRoot().captureRoboImage(filePath = "src/test/screenshots/trade_analytics_rendered.png")
 
-    // Find and click the export button
-    composeTestRule.onNodeWithTag("system_sharing_compliance_card").performClick()
+    // Find and click the export workbook button
+    composeTestRule.onNodeWithTag("share_workbook_btn").performClick()
   }
 }

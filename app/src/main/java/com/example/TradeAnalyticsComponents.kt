@@ -70,7 +70,14 @@ private fun shareToWhatsApp(context: Context, text: String) {
             }
         }
     } catch (t: Throwable) {
-        android.widget.Toast.makeText(context, "Error sharing: ${t.message}", android.widget.Toast.LENGTH_LONG).show()
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("AI Advisory Report", text)
+            clipboard.setPrimaryClip(clip)
+            android.widget.Toast.makeText(context, "Sharing platform not active. Report copied to clipboard!", android.widget.Toast.LENGTH_LONG).show()
+        } catch (ex: Exception) {
+            android.widget.Toast.makeText(context, "Error sharing: ${t.message}", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -85,7 +92,14 @@ private fun shareTextSystem(context: Context, text: String, title: String) {
         }
         context.startActivity(chooser)
     } catch (t: Throwable) {
-        android.widget.Toast.makeText(context, "Error sharing: ${t.message}", android.widget.Toast.LENGTH_LONG).show()
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("AI Advisory Report", text)
+            clipboard.setPrimaryClip(clip)
+            android.widget.Toast.makeText(context, "Sharing platform not active. Report copied to clipboard!", android.widget.Toast.LENGTH_LONG).show()
+        } catch (ex: Exception) {
+            android.widget.Toast.makeText(context, "Error sharing: ${t.message}", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -99,12 +113,13 @@ private fun escapeCsvField(field: String): String {
 }
 
 private fun exportTradesToCsvAndShare(context: Context, openTrades: List<PaperTrade>, closedTrades: List<PaperTrade>) {
+    val sb = StringBuilder()
     try {
         val allTrades = (openTrades + closedTrades).sortedByDescending { it.timestamp }
         val header = "Trade ID,Status,Symbol,Type,Strategy,Timeframe,Quantity,Invested Amount (USD),Entry Price (USD),Current Price (USD),Exit Price (USD),Realized P&L (USD),Execution Date,Exit Date,Justification\n"
         
         val dateFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-        val sb = StringBuilder(header)
+        sb.append(header)
         
         for (tr in allTrades) {
             val row = listOf(
@@ -147,7 +162,14 @@ private fun exportTradesToCsvAndShare(context: Context, openTrades: List<PaperTr
         }
         context.startActivity(chooser)
     } catch (e: Exception) {
-        android.widget.Toast.makeText(context, "Export Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("Crypto Trade Journal", sb.toString())
+            clipboard.setPrimaryClip(clip)
+            android.widget.Toast.makeText(context, "Sharing platform not active. CSV workbook copied to clipboard!", android.widget.Toast.LENGTH_LONG).show()
+        } catch (ex: Exception) {
+            android.widget.Toast.makeText(context, "Export Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -621,7 +643,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
 
                     Button(
                         onClick = { exportTradesToCsvAndShare(context, openTrades, closedTrades) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().testTag("share_workbook_btn"),
                         colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -635,22 +657,22 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                     }
 
                     if (aiInsights.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Button(
-                            onClick = { shareToWhatsApp(context, "🤖 CYBER AI BRAIN ADVISORY UNIT REPORT [${selectedAiMode.title.uppercase()}]\n\n$aiInsights") },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(
-                                text = "SHARE ACTIVE AI REPORT ON WHATSAPP",
-                                color = CyberGold,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                         Spacer(modifier = Modifier.height(10.dp))
+                         Button(
+                             onClick = { shareToWhatsApp(context, "🤖 CYBER AI BRAIN ADVISORY UNIT REPORT [${selectedAiMode.title.uppercase()}]\n\n$aiInsights") },
+                             modifier = Modifier.fillMaxWidth().testTag("share_whatsapp_btn"),
+                             colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
+                             shape = RoundedCornerShape(12.dp)
+                         ) {
+                             Text(
+                                 text = "SHARE ACTIVE AI REPORT ON WHATSAPP",
+                                 color = CyberGold,
+                                 fontSize = 9.sp,
+                                 fontFamily = FontFamily.Monospace,
+                                 fontWeight = FontWeight.Bold
+                             )
+                         }
+                     }
                 }
             }
         }
@@ -781,7 +803,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                         ) {
                             Button(
                                 onClick = { shareToWhatsApp(context, "🤖 CYBER AI BRAIN ADVISORY UNIT REPORT [${selectedAiMode.title.uppercase()}]\n\n$aiInsights") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).testTag("share_report_whatsapp_btn"),
                                 colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
@@ -789,7 +811,7 @@ fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
                             }
                             Button(
                                 onClick = { shareTextSystem(context, "🤖 CYBER AI BRAIN ADVISORY UNIT REPORT [${selectedAiMode.title.uppercase()}]\n\n$aiInsights", "AI Audit Report") },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).testTag("share_report_system_btn"),
                                 colors = ButtonDefaults.buttonColors(containerColor = CyberSurface),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
