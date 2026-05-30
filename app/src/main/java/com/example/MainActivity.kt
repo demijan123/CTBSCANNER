@@ -970,7 +970,7 @@ fun ScannerMarketTab(
                                 viewModel.setCustomMarketCapRange(parsedMin * 1_000_000.0, parsedMax * 1_000_000.0)
                             },
                             label = { Text("Min Cap ($ Million)", fontSize = 10.sp, color = CyberTextDim) },
-                            modifier = Modifier.weight(1f).height(56.dp),
+                            modifier = Modifier.weight(1f).height(64.dp),
                             shape = RoundedCornerShape(8.dp),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
@@ -996,7 +996,7 @@ fun ScannerMarketTab(
                                 viewModel.setCustomMarketCapRange(parsedMin * 1_000_000.0, parsedMax * 1_000_000.0)
                             },
                             label = { Text("Max Cap ($ Million)", fontSize = 10.sp, color = CyberTextDim) },
-                            modifier = Modifier.weight(1f).height(56.dp),
+                            modifier = Modifier.weight(1f).height(64.dp),
                             shape = RoundedCornerShape(8.dp),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
@@ -2885,7 +2885,7 @@ fun BacktestSimulatorScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("backtest_custom_sl_input")
-                                .height(52.dp),
+                                .height(64.dp),
                             label = { Text("Manual Backtest SL %", color = CyberTextDim, fontSize = 9.sp) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = CyberAccentGreen,
@@ -2914,7 +2914,7 @@ fun BacktestSimulatorScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .testTag("backtest_custom_tp_input")
-                                .height(52.dp),
+                                .height(64.dp),
                             label = { Text("Manual Backtest TP %", color = CyberTextDim, fontSize = 9.sp) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = CyberAccentGreen,
