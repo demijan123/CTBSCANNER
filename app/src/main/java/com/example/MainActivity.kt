@@ -6527,6 +6527,142 @@ fun OldAutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
             }
         }
 
+        // 2C. TRANS-SIMULATION COMMISSION & SLIPPAGE PROTOCOL CARD
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("bot_commissions_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "COMMISSION & SLIPPAGE PROTOCOL",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberGold,
+                        letterSpacing = 1.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Enables high-fidelity exchange emulation incorporating professional maker/taker commissions & buy/sell spread friction.",
+                        fontSize = 9.sp,
+                        color = CyberTextDim,
+                        lineHeight = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val slippageVal by viewModel.slippagePercent.collectAsState()
+                    val feeVal by viewModel.feePercent.collectAsState()
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Slippage Input
+                        var slippageInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.2f", slippageVal)) }
+                        var isSlippageFocused by remember { mutableStateOf(false) }
+                        LaunchedEffect(slippageVal, isSlippageFocused) {
+                            if (!isSlippageFocused) {
+                                slippageInput = String.format(java.util.Locale.US, "%.2f", slippageVal)
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = slippageInput,
+                            onValueChange = { newValue ->
+                                slippageInput = newValue
+                                val parsed = newValue.toDoubleOrNull()
+                                if (parsed != null && parsed >= 0.0 && parsed <= 5.0) {
+                                    viewModel.setSlippagePercent(parsed)
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged { isSlippageFocused = it.isFocused }
+                                .testTag("bot_slippage_input"),
+                            label = { Text("Slippage % (0-5)", color = CyberTextDim, fontSize = 11.sp) },
+                            placeholder = { Text("0.10", color = CyberTextDim.copy(alpha = 0.5f)) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedLabelColor = CyberAccentGreen,
+                                unfocusedLabelColor = CyberTextDim,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                            )
+                        )
+
+                        // Trading Fee Input
+                        var feeInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.3f", feeVal)) }
+                        var isFeeFocused by remember { mutableStateOf(false) }
+                        LaunchedEffect(feeVal, isFeeFocused) {
+                            if (!isFeeFocused) {
+                                feeInput = String.format(java.util.Locale.US, "%.3f", feeVal)
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = feeInput,
+                            onValueChange = { newValue ->
+                                feeInput = newValue
+                                val parsed = newValue.toDoubleOrNull()
+                                if (parsed != null && parsed >= 0.0 && parsed <= 2.0) {
+                                    viewModel.setFeePercent(parsed)
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged { isFeeFocused = it.isFocused }
+                                .testTag("bot_trading_fee_input"),
+                            label = { Text("Trading Fee % (0-2)", color = CyberTextDim, fontSize = 11.sp) },
+                            placeholder = { Text("0.050", color = CyberTextDim.copy(alpha = 0.5f)) },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = CyberAccentGreen,
+                                unfocusedBorderColor = CyberSurface,
+                                focusedTextColor = CyberTextWhite,
+                                unfocusedTextColor = CyberTextWhite,
+                                focusedLabelColor = CyberAccentGreen,
+                                unfocusedLabelColor = CyberTextDim,
+                                focusedContainerColor = CyberDark,
+                                unfocusedContainerColor = CyberDark
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(CyberDark, RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "⚙\uFE0F Active Friction Model: Slipped Entry price = spot * (1.0 \u00B1 ${String.format(java.util.Locale.US, "%.2f", slippageVal)}%), Round-Trip Fee = ${String.format(java.util.Locale.US, "%.3f", feeVal * 2.0)}% total.",
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = CyberAccentGreen
+                        )
+                    }
+                }
+            }
+        }
+
         // 2B. ASSET TARGETING PROTOCOL CARD
         item {
             Card(

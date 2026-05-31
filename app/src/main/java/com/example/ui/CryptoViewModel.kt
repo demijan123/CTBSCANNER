@@ -83,6 +83,12 @@ class CryptoViewModel(
     private val _manualTakeProfitPercent = MutableStateFlow(prefs.getFloat("manual_take_profit_percent", 4.0f).toDouble())
     val manualTakeProfitPercent: StateFlow<Double> = _manualTakeProfitPercent.asStateFlow()
 
+    private val _slippagePercent = MutableStateFlow(prefs.getFloat("simulated_slippage_percent", 0.1f).toDouble())
+    val slippagePercent: StateFlow<Double> = _slippagePercent.asStateFlow()
+
+    private val _feePercent = MutableStateFlow(prefs.getFloat("simulated_fee_percent", 0.05f).toDouble())
+    val feePercent: StateFlow<Double> = _feePercent.asStateFlow()
+
     private val _botTargetCoinMode = MutableStateFlow(prefs.getString("bot_target_coin_mode", "ALL") ?: "ALL")
     val botTargetCoinMode: StateFlow<String> = _botTargetCoinMode.asStateFlow()
 
@@ -702,7 +708,12 @@ class CryptoViewModel(
             } else {
                 (trade.entryPrice - currentPrice) * trade.quantity
             }
-            val pnl = if (rawPnl.isNaN() || rawPnl.isInfinite()) 0.0 else rawPnl
+            
+            val isDemoOrPaper = !trade.isMexcTrade || trade.isMexcDemoTrade
+            val feeRate = if (isDemoOrPaper) _feePercent.value / 100.0 else 0.0
+            val entryFee = trade.investedAmount * feeRate
+            val currentExitFee = currentPrice * trade.quantity * feeRate
+            val pnl = (if (rawPnl.isNaN() || rawPnl.isInfinite()) 0.0 else rawPnl) - entryFee - currentExitFee
 
             var triggerClose = false
             var finalStatus = trade.status
@@ -747,11 +758,14 @@ class CryptoViewModel(
             }
 
             if (triggerClose || forceCloseByBalancer) {
-                val finalPnl = if (isBuy) {
+                val netExchangedPnl = if (isBuy) {
                     (exitPrice - trade.entryPrice) * trade.quantity
                 } else {
                     (trade.entryPrice - exitPrice) * trade.quantity
                 }
+                val exitFee = (exitPrice * trade.quantity) * feeRate
+                val finalPnl = netExchangedPnl - entryFee - exitFee
+
                 val closedTrade = trade.copy(
                     currentPrice = exitPrice,
                     status = finalStatus,
@@ -971,7 +985,20 @@ class CryptoViewModel(
         mexcOrderId: String? = null,
         whyReason: String = ""
     ) {
-        val quantity = investedAmount / entryPrice
+        val isDemoOrPaper = !isMexc || isMexcDemo
+        val slippageVal = if (isDemoOrPaper) _slippagePercent.value / 100.0 else 0.0
+        val isBuy = signalType.uppercase() == "LONG" || signalType.uppercase() == "BUY"
+
+        val slippedEntryPrice = if (isBuy) {
+            entryPrice * (1.0 + slippageVal)
+        } else {
+            entryPrice * (1.0 - slippageVal)
+        }
+
+        val feeRate = if (isDemoOrPaper) _feePercent.value / 100.0 else 0.0
+        val entryFee = investedAmount * feeRate
+        val netInvested = if (investedAmount > entryFee) investedAmount - entryFee else investedAmount
+        val quantity = netInvested / slippedEntryPrice
         
         // Generate high-fidelity simulated analytics parameters for strategy optimization
         val timeframes = listOf("5m", "15m", "1h", "4h")
@@ -1016,13 +1043,13 @@ class CryptoViewModel(
             name = name,
             image = image,
             signalType = signalType,
-            entryPrice = entryPrice,
-            currentPrice = entryPrice,
+            entryPrice = slippedEntryPrice,
+            currentPrice = slippedEntryPrice,
             stopLoss = stopLoss,
             takeProfit = takeProfit,
             quantity = quantity,
             status = "OPEN",
-            pnl = 0.0,
+            pnl = -entryFee, // Unreleased entry cost
             investedAmount = investedAmount,
             strategy = strategy,
             isMexcTrade = isMexc,
@@ -1338,6 +1365,20 @@ class CryptoViewModel(
         _manualTakeProfitPercent.value = coerced
         prefs.edit().putFloat("manual_take_profit_percent", coerced.toFloat()).apply()
         addLog("🛡️ Configured Manual Take Profit: ${String.format(java.util.Locale.US, "%.1f", coerced)}%")
+    }
+
+    fun setSlippagePercent(percent: Double) {
+        val coerced = percent.coerceIn(0.0, 5.0)
+        _slippagePercent.value = coerced
+        prefs.edit().putFloat("simulated_slippage_percent", coerced.toFloat()).apply()
+        addLog("🛡️ Configured Slippage Tolerance Emulation: ${String.format(java.util.Locale.US, "%.2f", coerced)}%")
+    }
+
+    fun setFeePercent(percent: Double) {
+        val coerced = percent.coerceIn(0.0, 2.0)
+        _feePercent.value = coerced
+        prefs.edit().putFloat("simulated_fee_percent", coerced.toFloat()).apply()
+        addLog("🛡️ Configured Trading Commission Fee Emulation: ${String.format(java.util.Locale.US, "%.3f", coerced)}%")
     }
 
     private val _blueprintOverrideTrigger = MutableStateFlow(0L)
