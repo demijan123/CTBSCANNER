@@ -413,6 +413,7 @@ fun MainDesktopDashboard(
 
     val confirmedSignals by viewModel.activeConfirmedSignals.collectAsState()
     val bookmarkedSignals by viewModel.bookmarkedSignals.collectAsState()
+    val botConflictMessage by viewModel.botConflictMessage.collectAsState()
 
     Box(
         modifier = modifier
@@ -424,6 +425,7 @@ fun MainDesktopDashboard(
         ) {
             // --- Header Status Bar ---
             HeaderStatusBar(
+                viewModel = viewModel,
                 isScanning = isScanning,
                 isKeyConfigured = viewModel.isModelKeyConfigured,
                 activeTabTitle = tabTitles[selectedTab],
@@ -552,6 +554,76 @@ fun MainDesktopDashboard(
             )
         }
 
+        botConflictMessage?.let { msg ->
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { viewModel.clearBotConflictMessage() }
+            ) {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = CyberSurface,
+                    border = androidx.compose.foundation.BorderStroke(2.dp, if (msg.contains("cannot")) CyberAccentRed else CyberAccentGreen)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "System Alert",
+                            tint = if (msg.contains("cannot")) CyberAccentRed else CyberAccentGreen,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        Text(
+                            text = "CORE ALGORITHM SYSTEM ADVISORY",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = CyberGold,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 1.sp
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        Text(
+                            text = msg,
+                            fontSize = 13.sp,
+                            color = CyberTextWhite,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Button(
+                            onClick = { viewModel.clearBotConflictMessage() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CyberSlate,
+                                contentColor = CyberTextWhite
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(44.dp)
+                                .testTag("dismiss_conflict_dialog_btn")
+                        ) {
+                            Text(
+                                "ACKNOWLEDGE ADVISORY",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         if (showExitNotice) {
             LaunchedEffect(showExitNotice) {
                 kotlinx.coroutines.delay(3000L)
@@ -598,11 +670,15 @@ fun MainDesktopDashboard(
 
 @Composable
 fun HeaderStatusBar(
+    viewModel: CryptoViewModel,
     isScanning: Boolean,
     isKeyConfigured: Boolean,
     activeTabTitle: String,
     onForceRefresh: () -> Unit
 ) {
+    val botEnabled by viewModel.botEnabled.collectAsState()
+    val mexcBotEnabled by viewModel.mexcBotEnabled.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -623,20 +699,58 @@ fun HeaderStatusBar(
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Box(
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .background(if (isScanning) Color(0xFF22C55E) else CyberTextDim, CircleShape)
+                    )
+                    Text(
+                        text = if (isScanning) "LIVE SCANNING" else "SCAN INDEXED",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberTextDim,
+                        letterSpacing = 1.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
+                val (badgeLabel, badgeColor, badgeBg) = when {
+                    botEnabled -> Triple("Paper Trading Active", Color(0xFF22C55E), Color(0xFF22C55E).copy(alpha = 0.12f))
+                    mexcBotEnabled -> Triple("MEXC Live Active", CyberGold, CyberGold.copy(alpha = 0.12f))
+                    else -> Triple("No Active Bot", CyberTextDim, CyberSurface)
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
-                        .size(8.dp)
-                        .background(if (isScanning) Color(0xFF22C55E) else CyberTextDim, CircleShape)
-                )
-                Text(
-                    text = if (isScanning) "LIVE SCANNING" else "SCAN INDEXED",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = CyberTextDim,
-                    letterSpacing = 1.sp
-                )
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(badgeBg)
+                        .border(1.dp, badgeColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                        .testTag("trading_mode_status_indicator")
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(badgeColor, CircleShape)
+                    )
+                    Text(
+                        text = badgeLabel.uppercase(),
+                        fontSize = 8.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = badgeColor,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 0.5.sp
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(4.dp))
@@ -4943,12 +5057,12 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
 
     var maxTradesInput by remember { mutableStateOf(botMaxTrades.toString()) }
     var tradeSizeInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.0f", botTradeSize)) }
-    var botDemoBalanceInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.0f", mexcDemoBalance)) }
+    var botDemoBalanceInput by remember { mutableStateOf(String.format(java.util.Locale.US, "%.0f", cashBalance)) }
 
-    LaunchedEffect(botMaxTrades, botTradeSize, mexcDemoBalance) {
+    LaunchedEffect(botMaxTrades, botTradeSize, cashBalance) {
         maxTradesInput = botMaxTrades.toString()
         tradeSizeInput = String.format(java.util.Locale.US, "%.0f", botTradeSize)
-        botDemoBalanceInput = String.format(java.util.Locale.US, "%.0f", mexcDemoBalance)
+        botDemoBalanceInput = String.format(java.util.Locale.US, "%.0f", cashBalance)
     }
 
     LazyColumn(
@@ -5041,7 +5155,7 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
 
                         Column(modifier = Modifier.weight(1.2f), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                "MEXC DEMO BALANCE",
+                                "DEMO CAPITAL BALANCE",
                                 fontSize = 8.sp,
                                 color = CyberTextDim,
                                 fontWeight = FontWeight.Bold,
@@ -5049,7 +5163,7 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "$${formatCurrency(mexcDemoBalance)}",
+                                text = "$${formatCurrency(cashBalance)}",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Black,
                                 color = CyberAccentGreen
@@ -5121,10 +5235,10 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
                             onValueChange = {
                                 botDemoBalanceInput = it
                                 it.toDoubleOrNull()?.let { dbal ->
-                                    viewModel.setMexcDemoBalance(dbal)
+                                    viewModel.setCashBalance(dbal)
                                 }
                             },
-                            label = { Text("MEXC Demo Capital ($)", color = CyberTextDim, fontSize = 9.sp) },
+                            label = { Text("Demo Capital Balance ($)", color = CyberTextDim, fontSize = 9.sp) },
                             textStyle = androidx.compose.ui.text.TextStyle(color = CyberAccentGreen, fontSize = 11.sp),
                             modifier = Modifier.weight(1f),
                             singleLine = true
@@ -5132,7 +5246,8 @@ fun AutoBotTradingConsoleTab(viewModel: CryptoViewModel) {
 
                         Button(
                             onClick = {
-                                viewModel.setMexcDemoBalance(10000.0)
+                                viewModel.setCashBalance(100000.0)
+                                botDemoBalanceInput = "100000"
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = CyberSlate,

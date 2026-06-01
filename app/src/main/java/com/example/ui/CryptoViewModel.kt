@@ -108,10 +108,29 @@ class CryptoViewModel(
         addLog("💼 MEXC Demo Balance manual update: $${String.format(Locale.US, "%.2f", balance)}")
     }
 
+    private val _botConflictMessage = MutableStateFlow<String?>(null)
+    val botConflictMessage: StateFlow<String?> = _botConflictMessage.asStateFlow()
+
+    fun clearBotConflictMessage() {
+        _botConflictMessage.value = null
+    }
+
+    fun setCashBalance(balance: Double) {
+        _cashBalance.value = balance
+        prefs.edit().putFloat("cash_balance", balance.toFloat()).apply()
+        addLog("💼 Paper Trading Cash Balance manually updated/calibrated to: $${String.format(Locale.US, "%.2f", balance)}")
+    }
+
     private val _mexcBotEnabled = MutableStateFlow(prefs.getBoolean("mexc_bot_enabled", false))
     val mexcBotEnabled: StateFlow<Boolean> = _mexcBotEnabled.asStateFlow()
 
     fun setMexcBotEnabled(enabled: Boolean) {
+        if (enabled && _botEnabled.value) {
+            _botEnabled.value = false
+            prefs.edit().putBoolean("bot_enabled", false).apply()
+            addLog("🤖 Paper Trading Auto Bot automatically DEACTIVATED to allow MEXC Core Quant Bot activation.")
+            _botConflictMessage.value = "Paper Trading Auto Bot has been automatically stopped, and MEXC Core Quant Bot is now activated."
+        }
         _mexcBotEnabled.value = enabled
         prefs.edit().putBoolean("mexc_bot_enabled", enabled).apply()
         addLog(if (enabled) "🟢 MEXC independent Auto Bot started!" else "🔴 MEXC Auto Bot stopped.")
@@ -501,10 +520,9 @@ class CryptoViewModel(
                 delay(4000) // Update every 4 seconds
                 try {
                     updateLiveOpenTrades()
-                    if (_botEnabled.value) {
+                    if (_botEnabled.value && !_mexcBotEnabled.value) {
                         runBotAutoTradingCycle()
-                    }
-                    if (_mexcBotEnabled.value) {
+                    } else if (_mexcBotEnabled.value) {
                         runMexcBotAutoTradingCycle()
                     }
                 } catch (e: Throwable) {
@@ -1331,6 +1349,10 @@ class CryptoViewModel(
     // --- Auto Trading Bot Core Methods & Setters ---
 
     fun setBotEnabled(enabled: Boolean) {
+        if (enabled && _mexcBotEnabled.value) {
+            _botConflictMessage.value = "Paper Trading Auto Bot cannot be started while the MEXC Core Quant Bot is running. Please stop the MEXC Core Quant Bot before enabling Paper Trading."
+            return
+        }
         _botEnabled.value = enabled
         prefs.edit().putBoolean("bot_enabled", enabled).apply()
         addLog(if (enabled) "🤖 Auto Trading Bot Core ACTIVATED." else "🤖 Auto Trading Bot Core DEACTIVATED.")
