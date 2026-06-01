@@ -68,6 +68,9 @@ class CryptoViewModel(
     )
     val botSelectedBlueprints: StateFlow<Set<String>> = _botSelectedBlueprints.asStateFlow()
 
+    private val _strategyTimeframeSettings = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val strategyTimeframeSettings: StateFlow<Map<String, Set<String>>> = _strategyTimeframeSettings.asStateFlow()
+
     private val _botTradeSize = MutableStateFlow(prefs.getFloat("bot_trade_size", 1000f).toDouble())
     val botTradeSize: StateFlow<Double> = _botTradeSize.asStateFlow()
 
@@ -450,6 +453,32 @@ class CryptoViewModel(
         )
 
     init {
+        // Load strategy timeframe settings from preferences
+        val settingsMap = mutableMapOf<String, Set<String>>()
+        val allowedTfs = setOf("5m", "15m", "30m", "1H", "4H")
+        val allStrategyKeys = listOf(
+            "EMA Continuation Cross (V3)",
+            "High-Volume Momentum Breakout",
+            "Order Flow Imbalance (FVG Recovery)",
+            "Mean Reversion & Oversold Bounce",
+            "VWAP Deviation Band Mean Reversion",
+            "Wyckoff Spring & Phase C Accumulation",
+            "Institutional Order Block Grab",
+            "MACD Divergence & Momentum Exhaustion",
+            "Parabolic Arc Breakdown Squeeze",
+            "Volumetric Liquidity Sweep",
+            "Funding Rate Arbitrage Squeeze",
+            "Weekly Pivot Resistance Rejection",
+            "Order Flow Overexpansion (Bearish FVG)"
+        )
+        for (strategyName in allStrategyKeys) {
+            val enabledForStrategy = allowedTfs.filter { tf ->
+                prefs.getBoolean("tf_enabled_${strategyName}_${tf.uppercase()}", true)
+            }.toSet()
+            settingsMap[strategyName] = enabledForStrategy
+        }
+        _strategyTimeframeSettings.value = settingsMap
+
         // Automatically test MEXC credentials if enabled on init
         if (_mexcEnabled.value) {
             validateAndRefreshMexcBalance()
@@ -1001,11 +1030,13 @@ class CryptoViewModel(
         val quantity = netInvested / slippedEntryPrice
         
         // Generate high-fidelity simulated analytics parameters for strategy optimization
-        val timeframes = listOf("5m", "15m", "1h", "4h")
-        val computedTimeframe = when {
-            strategy.contains("Scalp", ignoreCase = true) -> "5m"
-            strategy.contains("Swing", ignoreCase = true) -> "4h"
-            else -> timeframes.random()
+        val allowedTfs = listOf("5m", "15m", "30m", "1H", "4H")
+        val enabledTfs = _strategyTimeframeSettings.value[strategy]?.toList() ?: emptyList()
+        val computedTimeframe = if (enabledTfs.isNotEmpty()) {
+            enabledTfs.random()
+        } else {
+            val candidateTfs = allowedTfs.filter { tf -> prefs.getBoolean("tf_enabled_${strategy}_${tf.uppercase()}", true) }
+            if (candidateTfs.isNotEmpty()) candidateTfs.random() else allowedTfs.random()
         }
         
         val levs = if (isMexc) listOf(1.0, 3.0, 5.0, 10.0, 20.0) else listOf(1.0)
@@ -1207,21 +1238,17 @@ class CryptoViewModel(
             val scanMode = _mexcBotScanMode.value
             val range = getActiveMarketCapRange()
             
-            val coins = if (mexcBotScannedCoins.isNotEmpty() && (now - lastMexcBotScanTime) <= 60000L) {
+            val coins = if (mexcBotScannedCoins.isNotEmpty() && (now - lastMexcBotScanTime) <= 45000L) {
                 mexcBotScannedCoins
             } else {
-                val globalCoins = _scannedCoins.value.filter { it.marketCap in range.first..range.second }
-                if (globalCoins.isNotEmpty()) {
-                    mexcBotScannedCoins = globalCoins
-                    lastMexcBotScanTime = now
-                    globalCoins
-                } else {
-                    addLog("🤖 [MEXC Bot] Scanning CoinGecko API markets (Min Cap: ${String.format(java.util.Locale.US, "%.0f", range.first)}, Max Cap: ${String.format(java.util.Locale.US, "%.0f", range.second)})...")
-                    val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                addLog("🤖 [MEXC Bot] Core background scanning markets (Min Cap: ${String.format(java.util.Locale.US, "%.0f", range.first)}, Max Cap: ${String.format(java.util.Locale.US, "%.0f", range.second)})...")
+                val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                if (fetched.isNotEmpty()) {
                     mexcBotScannedCoins = fetched
-                    lastMexcBotScanTime = now
-                    fetched
+                    _scannedCoins.value = fetched
                 }
+                lastMexcBotScanTime = now
+                fetched
             }
 
             if (coins.isEmpty()) return
@@ -1265,6 +1292,12 @@ class CryptoViewModel(
                         }
 
                         if (isStrategyAllowed) {
+                            val enabledTfs = _strategyTimeframeSettings.value[prediction.strategy] ?: emptySet()
+                            if (enabledTfs.isEmpty()) {
+                                addLog("🤖 [MEXC Bot] Skipped signal on ${coin.symbol.uppercase()} via '${prediction.strategy}' Setup - no enabled timeframes.")
+                                continue
+                            }
+
                             val success = executeMexcTrade(
                                 coinId = coin.id,
                                 symbol = coin.symbol,
@@ -1316,6 +1349,20 @@ class CryptoViewModel(
         _botSelectionMode.value = mode
         prefs.edit().putString("bot_selection_mode", mode).apply()
         addLog("🤖 Configured Bot Setup Selection Mode: $mode")
+    }
+
+    fun setTimeframeEnabled(strategy: String, timeframe: String, enabled: Boolean) {
+        prefs.edit().putBoolean("tf_enabled_${strategy}_${timeframe.uppercase()}", enabled).apply()
+        val currentMap = _strategyTimeframeSettings.value.toMutableMap()
+        val currentSet = (currentMap[strategy] ?: setOf("5m", "15m", "30m", "1H", "4H")).toMutableSet()
+        if (enabled) {
+            currentSet.add(timeframe)
+        } else {
+            currentSet.remove(timeframe)
+        }
+        currentMap[strategy] = currentSet
+        _strategyTimeframeSettings.value = currentMap
+        addLog("⚙️ Timeframe Optimization: On '$strategy', timeframe '$timeframe' is now ${if (enabled) "ENABLED" else "DISABLED"}.")
     }
 
     fun toggleBotBlueprint(blueprintTitle: String) {
@@ -1528,21 +1575,17 @@ class CryptoViewModel(
             // Get target coins independently of the manual scanner
             val range = getActiveMarketCapRange()
             val now = System.currentTimeMillis()
-            val coins = if (botScannedCoins.isNotEmpty() && (now - lastBotScanTime) <= 60000L) {
+            val coins = if (botScannedCoins.isNotEmpty() && (now - lastBotScanTime) <= 45000L) {
                 botScannedCoins
             } else {
-                val globalCoins = _scannedCoins.value.filter { it.marketCap in range.first..range.second }
-                if (globalCoins.isNotEmpty()) {
-                    botScannedCoins = globalCoins
-                    lastBotScanTime = now
-                    globalCoins
-                } else {
-                    addLog("🤖 [Auto Bot] Scanning CoinGecko API markets (Min Cap: ${String.format(java.util.Locale.US, "%.0f", range.first)}, Max Cap: ${String.format(java.util.Locale.US, "%.0f", range.second)})...")
-                    val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                addLog("🤖 [Auto Bot] Core background scanning markets (Min Cap: ${String.format(java.util.Locale.US, "%.0f", range.first)}, Max Cap: ${String.format(java.util.Locale.US, "%.0f", range.second)})...")
+                val fetched = repository.scanMarket(useFallbackOnly = false, minCap = range.first, maxCap = range.second)
+                if (fetched.isNotEmpty()) {
                     botScannedCoins = fetched
-                    lastBotScanTime = now
-                    fetched
+                    _scannedCoins.value = fetched
                 }
+                lastBotScanTime = now
+                fetched
             }
 
             if (coins.isEmpty()) return
@@ -1580,6 +1623,12 @@ class CryptoViewModel(
                         }
 
                         if (isStrategyAllowed) {
+                            val enabledTfs = _strategyTimeframeSettings.value[prediction.strategy] ?: emptySet()
+                            if (enabledTfs.isEmpty()) {
+                                addLog("🤖 [Auto Bot] Skipped signal on ${coin.symbol.uppercase()} via '${prediction.strategy}' Setup - no enabled timeframes.")
+                                continue
+                            }
+
                             val success = executePaperTrade(
                                 coinId = coin.id,
                                 symbol = coin.symbol,

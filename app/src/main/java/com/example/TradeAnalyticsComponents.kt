@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Info
@@ -14,6 +15,9 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.runtime.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,7 +43,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun shareToWhatsApp(context: Context, text: String) {
+internal fun shareToWhatsApp(context: Context, text: String) {
     try {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -81,7 +85,7 @@ private fun shareToWhatsApp(context: Context, text: String) {
     }
 }
 
-private fun shareTextSystem(context: Context, text: String, title: String) {
+internal fun shareTextSystem(context: Context, text: String, title: String) {
     try {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -103,7 +107,7 @@ private fun shareTextSystem(context: Context, text: String, title: String) {
     }
 }
 
-private fun escapeCsvField(field: String): String {
+internal fun escapeCsvField(field: String): String {
     val clean = field.replace("\"", "\"\"")
     return if (clean.contains(",") || clean.contains("\n") || clean.contains("\"")) {
         "\"$clean\""
@@ -112,7 +116,7 @@ private fun escapeCsvField(field: String): String {
     }
 }
 
-private fun exportTradesToCsvAndShare(context: Context, openTrades: List<PaperTrade>, closedTrades: List<PaperTrade>) {
+internal fun exportTradesToCsvAndShare(context: Context, openTrades: List<PaperTrade>, closedTrades: List<PaperTrade>) {
     val sb = StringBuilder()
     try {
         val allTrades = (openTrades + closedTrades).sortedByDescending { it.timestamp }
@@ -526,6 +530,109 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
 
 @Composable
 fun TradeAnalyticsTab(viewModel: CryptoViewModel) {
+    val closedTrades by viewModel.closedTrades.collectAsState()
+    val openTrades by viewModel.openTrades.collectAsState()
+    val selectedAiMode by viewModel.selectedAiMode.collectAsState()
+    val aiInsights by viewModel.aiInsights.collectAsState()
+    val isGeneratingAiInsights by viewModel.isGeneratingAiInsights.collectAsState()
+    val strategyTimeframeSettings by viewModel.strategyTimeframeSettings.collectAsState()
+    val context = LocalContext.current
+
+    val total = closedTrades.size
+    val wins = closedTrades.filter { it.pnl > 0.0 }.size
+    val winRate = if (total > 0) (wins.toDouble() / total) * 100.0 else 0.0
+    val grossProfit = closedTrades.filter { it.pnl > 0.0 }.sumOf { it.pnl }
+    val grossLoss = closedTrades.filter { it.pnl < 0.0 }.sumOf { Math.abs(it.pnl) }
+    val profitFactor = if (grossLoss > 0) grossProfit / grossLoss else if (grossProfit > 0) Double.POSITIVE_INFINITY else 1.0
+    val totalRevenue = closedTrades.sumOf { it.pnl }
+
+    val strategiesList = listOf(
+        "EMA Continuation Cross (V3)",
+        "High-Volume Momentum Breakout",
+        "Order Flow Imbalance (FVG Recovery)",
+        "Mean Reversion & Oversold Bounce",
+        "VWAP Deviation Band Mean Reversion",
+        "Wyckoff Spring & Phase C Accumulation",
+        "Institutional Order Block Grab",
+        "MACD Divergence & Momentum Exhaustion",
+        "Parabolic Arc Breakdown Squeeze",
+        "Volumetric Liquidity Sweep",
+        "Funding Rate Arbitrage Squeeze",
+        "Weekly Pivot Resistance Rejection",
+        "Order Flow Overexpansion (Bearish FVG)"
+    )
+
+    val timeframesList = listOf("5m", "15m", "30m", "1H", "4H")
+
+    var activeAnalyticsSection by remember { mutableStateOf(0) }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        ScrollableTabRow(
+            selectedTabIndex = activeAnalyticsSection,
+            containerColor = CyberDark,
+            contentColor = CyberGold,
+            edgePadding = 8.dp,
+            indicator = { tabPositions ->
+                if (activeAnalyticsSection in tabPositions.indices) {
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[activeAnalyticsSection]),
+                        color = CyberGold
+                    )
+                }
+            },
+            divider = {}
+        ) {
+            val sections = listOf("🌐 CORE INTELLIGENCE", "📊 STRATEGY × TIMEFRAME", "🎯 COINS & REGIMES")
+            sections.forEachIndexed { idx, label ->
+                Tab(
+                    selected = activeAnalyticsSection == idx,
+                    onClick = { activeAnalyticsSection = idx },
+                    text = { Text(label, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = if (activeAnalyticsSection == idx) CyberGold else CyberTextDim) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        when (activeAnalyticsSection) {
+            0 -> {
+                CoreIntelligenceSubTab(
+                    viewModel = viewModel,
+                    closedTrades = closedTrades,
+                    openTrades = openTrades,
+                    selectedAiMode = selectedAiMode,
+                    aiInsights = aiInsights,
+                    isGeneratingAiInsights = isGeneratingAiInsights,
+                    context = context,
+                    total = total,
+                    winRate = winRate,
+                    profitFactor = profitFactor,
+                    totalRevenue = totalRevenue
+                )
+            }
+            1 -> {
+                StrategyTimeframeSubTab(
+                    viewModel = viewModel,
+                    closedTrades = closedTrades,
+                    strategyTimeframeSettings = strategyTimeframeSettings,
+                    strategiesList = strategiesList,
+                    timeframesList = timeframesList
+                )
+            }
+            2 -> {
+                CoinsRegimesSubTab(
+                    viewModel = viewModel,
+                    closedTrades = closedTrades,
+                    strategiesList = strategiesList,
+                    timeframesList = timeframesList
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DummyDeadTab(viewModel: CryptoViewModel) {
     val closedTrades by viewModel.closedTrades.collectAsState()
     val openTrades by viewModel.openTrades.collectAsState()
     val selectedAiMode by viewModel.selectedAiMode.collectAsState()

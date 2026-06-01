@@ -130,13 +130,13 @@ class CryptoRepository(
         val vol = coin.totalVolume ?: 500_000.0
         val relativeVolume = vol / (coin.marketCap.coerceAtLeast(1.0) * 0.05) // Approximate relative volume indicator
 
-        val isOversold = changePercentage < -9.5 && relativeVolume > 1.2
-        val isOverboughtBreakout = changePercentage > 12.0 && relativeVolume > 1.5
-        val isExhaustionRally = changePercentage > 8.0 && relativeVolume < 0.6
-        val isWyckoffSpring = (changePercentage in -4.0..-0.1) && relativeVolume > 1.4
-        val isEmaContinuation = (changePercentage in 4.0..10.0) && relativeVolume > 1.3
-        val isMacdDivergence = (changePercentage in 1.0..6.0) && relativeVolume >= 0.65
-        val isOrderBlockSweep = (changePercentage in -9.5..-4.0)
+        val isOversold = changePercentage < -7.0 && relativeVolume > 1.0
+        val isOverboughtBreakout = changePercentage > 9.0 && relativeVolume > 1.1
+        val isExhaustionRally = changePercentage > 6.0 && relativeVolume < 0.75
+        val isWyckoffSpring = (changePercentage in -5.0..-0.1) && relativeVolume > 1.0
+        val isEmaContinuation = (changePercentage in 3.0..10.0) && relativeVolume > 0.9
+        val isMacdDivergence = (changePercentage in 1.0..7.0) && relativeVolume >= 0.6
+        val isOrderBlockSweep = (changePercentage in -8.5..-3.0) && relativeVolume >= 0.8
 
         val activeStrategies = mutableListOf<String>()
         if (isOversold) activeStrategies.add("Mean Reversion & Oversold Bounce")
@@ -224,8 +224,9 @@ class CryptoRepository(
             }
         }
 
-        when {
-            isOversold -> {
+        val chosenStrategy = activeStrategies.randomOrNull() ?: "Neutral Cycle Consolidation"
+        when (chosenStrategy) {
+            "Mean Reversion & Oversold Bounce" -> {
                 TradePrediction(
                     signal = "LONG",
                     confidence = 88,
@@ -235,7 +236,7 @@ class CryptoRepository(
                     rationale = "${coin.name} (${coin.symbol.uppercase()}) has suffered a severe 24-hour selloff ($changePercentage%) on high volume, pushing deep into daily oversold territory. This LONG trade is triggered because technical indices indicate institutional block buyers are actively absorbing retail liquidations at past market cap bottoms, forecasting a powerful mean-reversion rebound."
                 )
             }
-            isOverboughtBreakout -> {
+            "High-Volume Momentum Breakout" -> {
                 TradePrediction(
                     signal = "LONG",
                     confidence = 91,
@@ -245,7 +246,7 @@ class CryptoRepository(
                     rationale = "${coin.name} (${coin.symbol.uppercase()}) has broken out of its 14-day consolidative envelope with a massive $changePercentage% daily green candle. This LONG trade is highly confirmed by a premium $relativeVolume relative volume ratio, signifying active trend-following accumulation as buyers seek overhead targets under light resistance."
                 )
             }
-            isEmaContinuation -> {
+            "EMA Continuation Cross (V3)" -> {
                 TradePrediction(
                     signal = "LONG",
                     confidence = 89,
@@ -255,7 +256,7 @@ class CryptoRepository(
                     rationale = "${coin.name} (${coin.symbol.uppercase()}) exhibits a bullish structural continuation above its 50 Exponential Moving Average. This LONG trade is backed by a healthy relative volume ratio ($relativeVolume), signaling that a stable base of medium-term buyers has stepped in, confirming immediate trend continuation."
                 )
             }
-            isWyckoffSpring -> {
+            "Wyckoff Spring & Phase C Accumulation" -> {
                 TradePrediction(
                     signal = "LONG",
                     confidence = 87,
@@ -265,7 +266,7 @@ class CryptoRepository(
                     rationale = "${coin.name} (${coin.symbol.uppercase()}) has completed a textbook Phase C 'Spring' liquidity raid. This LONG setup is highly accurate because the rapid, heavy-volume recovery of trading range support shows market makers successfully flushed out weak-hand retail traders before an imminent markup cycle."
                 )
             }
-            isOrderBlockSweep -> {
+            "Institutional Order Block Grab" -> {
                 TradePrediction(
                     signal = "LONG",
                     confidence = 85,
@@ -275,7 +276,7 @@ class CryptoRepository(
                     rationale = "${coin.name} (${coin.symbol.uppercase()}) has retraced directly into a high-density 4-hour bullish Order Block. This LONG trade is triggered based on verified historical demand clusters where top traders anticipate major institutional orders to fill, shielding downstream downside risk."
                 )
             }
-            isExhaustionRally -> {
+            "Volumetric Liquidity Sweep" -> {
                 TradePrediction(
                     signal = "SHORT",
                     confidence = 86,
@@ -285,7 +286,7 @@ class CryptoRepository(
                     rationale = "${coin.name} (${coin.symbol.uppercase()}) is rallying on highly diminished relative volume. This SHORT trade is triggered because the thin-liquidity rise indicates severe buying exhaustion and lack of macro buyer participation. It represents an extremely high-accuracy short opportunity as profit-taking sweepers easily target lower liquidity levels."
                 )
             }
-            isMacdDivergence -> {
+            "MACD Divergence & Momentum Exhaustion" -> {
                 TradePrediction(
                     signal = "SHORT",
                     confidence = 88,
