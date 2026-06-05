@@ -635,7 +635,7 @@ fun StrategyTimeframeSubTab(
                                 }
                             }
                         }
-                        Divider(color = CyberSurface, modifier = Modifier.padding(vertical = 4.dp))
+                        HorizontalDivider(color = CyberSurface, modifier = Modifier.padding(vertical = 4.dp))
                     }
                 }
             }

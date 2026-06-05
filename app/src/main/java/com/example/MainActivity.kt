@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -97,6 +98,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -921,7 +926,7 @@ fun ScannerLiveProgressOverlay(
             }
             Spacer(modifier = Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = if (progress.isNaN() || progress.isInfinite()) 0f else progress.coerceIn(0f, 1f),
+                progress = { if (progress.isNaN() || progress.isInfinite()) 0f else progress.coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
@@ -1802,102 +1807,368 @@ fun TradeChartSpline(
     isBuy: Boolean
 ) {
     val splineColor = if (isBuy) CyberAccentGreen else CyberAccentRed
-    
-    // Cache the trend point fractions on signal ID/direction updates
-    val pointFractions = remember(signal.id, isBuy) {
-        val fractions = ArrayList<Offset>()
+    val confidenceColor = CyberGold
+
+    // Generate high-fidelity historical data series mimicking a real Recharts feed
+    val chartData = remember(signal.id, isBuy) {
+        val list = ArrayList<Triple<String, Double, Double>>() // Label, Price, Confidence %
+        val basePrice = signal.currentPrice
         val pointsCount = 10
-        val seedString = signal.id
-        val charSum = seedString.sumOf { it.code }
-        val generator = java.util.Random(charSum.toLong())
-        val baselineOffset = if (isBuy) 0.6f else 0.4f
+        val charSum = signal.id.sumOf { it.code }
+        val generator = java.util.Random(charSum.toLong() + signal.confidence)
 
         for (i in 0 until pointsCount) {
-            val xFraction = i.toFloat() / (pointsCount - 1).toFloat()
-            val floatVolatility = generator.nextFloat() * 0.35f
-            val sineMod = Math.sin(i.toDouble() * 1.2).toFloat() * 0.15f
-            val deltaTrend = if (isBuy) (i.toFloat() / pointsCount.toFloat()) * 0.3f else -(i.toFloat() / pointsCount.toFloat()) * 0.3f
-            val yFraction = (baselineOffset - deltaTrend + floatVolatility + sineMod).coerceIn(0.1f, 0.9f)
-            fractions.add(Offset(xFraction, yFraction))
+            val frac = i.toFloat() / (pointsCount - 1).toFloat()
+            // High-fidelity natural fluctuations between -4% and +4%
+            val fluctuation = (generator.nextFloat() * 0.08f) - 0.04f
+            
+            // LONG signal establishes price floor dip earlier; SHORT signal establishes upward breakout peak earlier
+            val trend = if (isBuy) {
+                -0.03f * (1f - frac) + fluctuation
+            } else {
+                0.04f * (1f - frac) + fluctuation
+            }
+            val simulatedPrice = basePrice * (1.0 + trend)
+            
+            // Confidence rises dynamically to target trigger point at the end
+            val baseConfidence = signal.confidence.toDouble()
+            val simulatedConfidence = (baseConfidence * 0.5) + (baseConfidence * 0.5 * frac) + (generator.nextFloat() * 4.0 - 2.0)
+            
+            list.add(
+                Triple(
+                    "T-${pointsCount - 1 - i}H",
+                    simulatedPrice.coerceAtLeast(0.000001),
+                    simulatedConfidence.coerceIn(10.0, 100.0)
+                )
+            )
         }
-        fractions
+        list
     }
 
-    Box(
+    val prices = chartData.map { it.second }
+    val maxPrice = prices.maxOrNull() ?: signal.currentPrice
+    val minPrice = prices.minOrNull() ?: signal.currentPrice
+    val priceRange = (maxPrice - minPrice).coerceAtLeast(0.00001)
+
+    // Interactive pointer indexing state
+    var activeIndex by remember { mutableStateOf(-1) }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(100.dp)
-            .background(CyberDark, RoundedCornerShape(6.dp))
-            .border(1.dp, CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-            .padding(vertical = 12.dp, horizontal = 16.dp)
+            .background(CyberDark, RoundedCornerShape(12.dp))
+            .border(1.dp, CyberSlate.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .padding(12.dp)
+            .testTag("recharts_historical_price_card")
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val width = size.width
-            val height = size.height
-            if (width <= 0f || height <= 0f) return@Canvas
+        // --- Header Status Bar / Recharts Legend Info ---
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "RECHARTS ACTIVE TELEMETRY",
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = CyberTextDim,
+                letterSpacing = 1.sp
+            )
+            
+            // Legends Row
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).background(splineColor, CircleShape))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Price", fontSize = 8.sp, color = CyberTextWhite)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(6.dp).background(confidenceColor, CircleShape))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Confidence", fontSize = 8.sp, color = CyberTextWhite)
+                }
+            }
+        }
 
-            // Project fractions onto current canvas size
-            val points = pointFractions.map { Offset(it.x * width, it.y * height) }
+        Spacer(modifier = Modifier.height(10.dp))
 
-            // Create Bezier Path
-            val path = Path()
-            path.moveTo(points[0].x, points[0].y)
-            for (i in 0 until points.size - 1) {
-                val p0 = points[i]
-                val p1 = points[i + 1]
-                val controlX = (p0.x + p1.x) / 2
-                path.cubicTo(
-                    controlX, p0.y,
-                    controlX, p1.y,
-                    p1.x, p1.y
-                )
+        // --- Main Graphic View Area (Dual Axis layout) ---
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(140.dp)
+        ) {
+            // Left Axis overlay (Price bounds)
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .align(Alignment.CenterStart)
+                    .padding(start = 2.dp, top = 10.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("$${formatPrice(maxPrice)}", fontSize = 8.sp, color = splineColor, fontFamily = FontFamily.Monospace)
+                Text("$${formatPrice(minPrice)}", fontSize = 8.sp, color = splineColor, fontFamily = FontFamily.Monospace)
             }
 
-            // Fill area under spline
-            val fillPath = Path()
-            fillPath.addPath(path)
-            fillPath.lineTo(width, height)
-            fillPath.lineTo(0f, height)
-            fillPath.close()
+            // Right Axis overlay (Confidence bounds)
+            Column(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 2.dp, top = 10.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End
+            ) {
+                Text("100%", fontSize = 8.sp, color = confidenceColor, fontFamily = FontFamily.Monospace)
+                Text("0%", fontSize = 8.sp, color = confidenceColor, fontFamily = FontFamily.Monospace)
+            }
 
-            drawPath(
-                path = fillPath,
-                brush = Brush.verticalGradient(
-                    colors = listOf(splineColor.copy(alpha = 0.15f), Color.Transparent),
-                    startY = 0f,
-                    endY = height
+            // Canvas Area representing standard Recharts layout (grid, paths, dynamic touch crosshairs)
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 42.dp, vertical = 10.dp)
+                    .pointerInput(chartData) {
+                        detectDragGestures(
+                            onDragStart = { offset ->
+                                val xFraction = offset.x / size.width
+                                activeIndex = ((xFraction * 9f) + 0.5f).toInt().coerceIn(0, 9)
+                            },
+                            onDrag = { change, _ ->
+                                val offset = change.position
+                                val xFraction = offset.x / size.width
+                                activeIndex = ((xFraction * 9f) + 0.5f).toInt().coerceIn(0, 9)
+                            },
+                            onDragEnd = {
+                                activeIndex = -1
+                            },
+                            onDragCancel = {
+                                activeIndex = -1
+                            }
+                        )
+                    }
+                    .pointerInput(chartData) {
+                        detectTapGestures(
+                            onPress = { offset ->
+                                val xFraction = offset.x / size.width
+                                activeIndex = ((xFraction * 9f) + 0.5f).toInt().coerceIn(0, 9)
+                                tryAwaitRelease()
+                                activeIndex = -1
+                            }
+                        )
+                    }
+            ) {
+                val width = size.width
+                val height = size.height
+                if (width <= 0f || height <= 0f) return@Canvas
+
+                // 1. Cartesian Grid lines (Dashed horizontal lines inside plotting area)
+                val dashEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                val gridYIntervals = listOf(0.0f, 0.25f, 0.5f, 0.75f, 1.0f)
+                for (gy in gridYIntervals) {
+                    val gridY = gy * height
+                    drawLine(
+                        color = CyberSlate.copy(alpha = 0.3f),
+                        start = Offset(0f, gridY),
+                        end = Offset(width, gridY),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = dashEffect
+                    )
+                }
+
+                // Standard Vertical Ticks
+                for (i in 0 until 10) {
+                    val stepX = (i.toFloat() / 9f) * width
+                    drawLine(
+                        color = CyberSlate.copy(alpha = 0.2f),
+                        start = Offset(stepX, 0f),
+                        end = Offset(stepX, height),
+                        strokeWidth = 1.dp.toPx(),
+                        pathEffect = dashEffect
+                    )
+                }
+
+                // 2. Generate point geometries
+                val pricePoints = ArrayList<Offset>()
+                val confidencePoints = ArrayList<Offset>()
+
+                for (i in 0 until 10) {
+                    val ptX = (i.toFloat() / 9f) * width
+                    val data = chartData[i]
+                    
+                    // Price: project onto [minPrice..maxPrice] range -> scale [0.1..0.9] of height
+                    val pFrac = ((data.second - minPrice) / priceRange).toFloat()
+                    val ptY = height - (pFrac * height * 0.8f + height * 0.1f)
+                    pricePoints.add(Offset(ptX, ptY))
+
+                    // Confidence: project [0..100] scale -> scale [0.1..0.9] of height
+                    val cFrac = (data.third / 100.0).toFloat()
+                    val cY = height - (cFrac * height * 0.8f + height * 0.1f)
+                    confidencePoints.add(Offset(ptX, cY))
+                }
+
+                // 3. Draw Price Curve Path with gradient area under fill
+                val pricePath = Path()
+                pricePath.moveTo(pricePoints[0].x, pricePoints[0].y)
+                for (i in 0 until pricePoints.size - 1) {
+                    val p0 = pricePoints[i]
+                    val p1 = pricePoints[i + 1]
+                    val controlX = (p0.x + p1.x) / 2f
+                    pricePath.cubicTo(
+                        controlX, p0.y,
+                        controlX, p1.y,
+                        p1.x, p1.y
+                    )
+                }
+
+                val priceFillPath = Path()
+                priceFillPath.addPath(pricePath)
+                priceFillPath.lineTo(width, height)
+                priceFillPath.lineTo(0f, height)
+                priceFillPath.close()
+
+                drawPath(
+                    path = priceFillPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(splineColor.copy(alpha = 0.15f), Color.Transparent),
+                        startY = 0f,
+                        endY = height
+                    )
                 )
-            )
 
-            // Draw final smooth line
-            drawPath(
-                path = path,
-                color = splineColor,
-                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-            )
+                drawPath(
+                    path = pricePath,
+                    color = splineColor,
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                )
 
-            // Draw indicator lines for Entry (dotted) or levels
-            val entryY = points.last().y
-            drawLine(
-                color = CyberTextDim.copy(alpha = 0.5f),
-                start = Offset(0f, entryY),
-                end = Offset(width, entryY),
-                strokeWidth = 1.dp.toPx(),
-                cap = StrokeCap.Round
-            )
+                // 4. Draw Confidence Level Curve (Thinner, stylish secondary dotted line)
+                val confidencePath = Path()
+                confidencePath.moveTo(confidencePoints[0].x, confidencePoints[0].y)
+                for (i in 0 until confidencePoints.size - 1) {
+                    val p0 = confidencePoints[i]
+                    val p1 = confidencePoints[i + 1]
+                    val controlX = (p0.x + p1.x) / 2f
+                    confidencePath.cubicTo(
+                        controlX, p0.y,
+                        controlX, p1.y,
+                        p1.x, p1.y
+                    )
+                }
 
-            // Draw coordinate circle on current end point
-            drawCircle(
-                color = splineColor,
-                radius = 4.dp.toPx(),
-                center = points.last()
-            )
-            drawCircle(
-                color = CyberTextWhite,
-                radius = 2.dp.toPx(),
-                center = points.last()
-            )
+                drawPath(
+                    path = confidencePath,
+                    color = confidenceColor,
+                    style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                )
+
+                // 5. Draw interactive hover line/markers if activeIndex is active
+                if (activeIndex in 0 until 10) {
+                    val activePtX = (activeIndex.toFloat() / 9f) * width
+                    
+                    // Draw vertical hover tracker line
+                    drawLine(
+                        color = CyberTextDim.copy(alpha = 0.5f),
+                        start = Offset(activePtX, 0f),
+                        end = Offset(activePtX, height),
+                        strokeWidth = 1.2.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                    )
+
+                    // Price node marker circle
+                    drawCircle(
+                        color = splineColor,
+                        radius = 5.dp.toPx(),
+                        center = pricePoints[activeIndex]
+                    )
+                    drawCircle(
+                        color = CyberTextWhite,
+                        radius = 2.5.dp.toPx(),
+                        center = pricePoints[activeIndex]
+                    )
+
+                    // Confidence node marker circle
+                    drawCircle(
+                        color = confidenceColor,
+                        radius = 5.dp.toPx(),
+                        center = confidencePoints[activeIndex]
+                    )
+                    drawCircle(
+                        color = CyberTextWhite,
+                        radius = 2.5.dp.toPx(),
+                        center = confidencePoints[activeIndex]
+                    )
+                }
+            }
+
+            // Floating Custom Responsive Recharts Tooltip view overlay block
+            if (activeIndex in 0 until 10) {
+                val data = chartData[activeIndex]
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 42.dp, vertical = 10.dp)
+                ) {
+                    // Coordinates projection for clean aligned display over point
+                    val activePtX = (activeIndex.toFloat() / 9f)
+                    val alignmentBias = -1f + (activePtX * 2f) // maps [0..1] -> [-1..1] for Bias alignment
+                    
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .background(CyberSlate.copy(alpha = 0.95f), RoundedCornerShape(8.dp))
+                            .border(1.dp, splineColor.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                            .width(110.dp)
+                    ) {
+                        Column {
+                            Text(
+                                text = "Interval: ${data.first}",
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = CyberTextWhite
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "Price: $${formatPrice(data.second)}",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                color = splineColor
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Conf: ${String.format(Locale.US, "%.1f", data.third)}%",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black,
+                                color = confidenceColor
+                            )
+                        }
+                    }
+                }
+            }
         }
+
+        // --- Bottom Horizontal Axis Labels ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 42.dp),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("T-9H", fontSize = 8.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+            Text("T-5H", fontSize = 8.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+            Text("T-0H", fontSize = 8.sp, color = CyberTextDim, fontFamily = FontFamily.Monospace)
+        }
+        
+        // Dynamic bottom indicator message
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "ℹ️ Tap or drag on chart area to inspect real-time coordinates",
+            fontSize = 7.5.sp,
+            color = CyberTextDim,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
     }
 }
 
@@ -3196,7 +3467,7 @@ fun BacktestSimulatorScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         
                         LinearProgressIndicator(
-                            progress = if (simulationProgress.isNaN() || simulationProgress.isInfinite()) 0f else simulationProgress.coerceIn(0f, 1f),
+                            progress = { if (simulationProgress.isNaN() || simulationProgress.isInfinite()) 0f else simulationProgress.coerceIn(0f, 1f) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp),
@@ -7737,6 +8008,44 @@ fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // --- 4. SECURE ACCOUNT SECURITY DISCLAIMER & DECOMPILE CAUTION ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("api_security_caveat_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberAccentRed.copy(alpha = 0.5f))
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Security Alert",
+                            tint = CyberAccentRed,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "CRITICAL SECURITY WARNING",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            color = CyberAccentRed,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Android APK compilation packages can be decompiled and reverse-engineered with standard tools (e.g., JADX). Storing sensitive API credentials (such as MEXC credentials or Gemini API Keys) inside local databases or injecting them via build configurations (BuildConfig) does not protect them from malicious extraction if the app is distributed in production.\n\n" +
+                                "To protect your exchange funds and resources, always use restricted API key scope parameters (IP white-listing, Spot-only trades, Withdrawal-Disabled). For high-volume production deployments, routing exchange calls through an authorized backend proxy is strongly recommended.",
+                        fontSize = 10.5.sp,
+                        color = CyberTextDim,
+                        lineHeight = 15.sp
+                    )
                 }
             }
         }
