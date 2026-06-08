@@ -1310,16 +1310,47 @@ fun ScannerMarketTab(
                             }
 
                             // Price details
+                            val prevPrice = remember(coin.id) { mutableStateOf(coin.currentPrice) }
+                            val priceChangeDirection = when {
+                                coin.currentPrice > prevPrice.value -> 1
+                                coin.currentPrice < prevPrice.value -> -1
+                                else -> 0
+                            }
+                            LaunchedEffect(coin.currentPrice) {
+                                prevPrice.value = coin.currentPrice
+                            }
+
+                            val arrow = when (priceChangeDirection) {
+                                1 -> "▲ "
+                                -1 -> "▼ "
+                                else -> ""
+                            }
+                            val priceColor = when (priceChangeDirection) {
+                                1 -> CyberAccentGreen
+                                -1 -> CyberAccentRed
+                                else -> CyberTextWhite
+                            }
+
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.End
                             ) {
-                                Text(
-                                    text = "$${formatPrice(coin.currentPrice)}",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = CyberTextWhite
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (arrow.isNotEmpty()) {
+                                        Text(
+                                            text = arrow,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = priceColor
+                                        )
+                                    }
+                                    Text(
+                                        text = "$${formatPrice(coin.currentPrice)}",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = priceColor
+                                    )
+                                }
                                 val pChange = coin.priceChangePercentage24h ?: 0.0
                                 Text(
                                     text = "${if (pChange >= 0) "+" else ""}${String.format(java.util.Locale.US, "%.2f", pChange)}%",

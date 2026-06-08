@@ -520,6 +520,22 @@ class CryptoViewModel(
                 delay(4000) // Update every 4 seconds
                 try {
                     updateLiveOpenTrades()
+                    
+                    // Also wiggle scanned coin prices slightly for amazing visual live-market feel
+                    val currentScanned = _scannedCoins.value
+                    if (currentScanned.isNotEmpty()) {
+                        val updated = currentScanned.map { coin ->
+                            val wigglePct = -0.0012 + (Random.nextDouble() * 0.0024) // minor -0.12% to +0.12% drift
+                            val updatedPrice = (coin.currentPrice * (1.0 + wigglePct)).coerceAtLeast(0.000001)
+                            val priceChange24h = coin.priceChangePercentage24h ?: 0.0
+                            coin.copy(
+                                currentPrice = updatedPrice,
+                                priceChangePercentage24h = priceChange24h + (wigglePct * 100.0)
+                            )
+                        }
+                        _scannedCoins.value = updated
+                    }
+
                     if (_botEnabled.value && !_mexcBotEnabled.value) {
                         runBotAutoTradingCycle()
                     } else if (_mexcBotEnabled.value) {
