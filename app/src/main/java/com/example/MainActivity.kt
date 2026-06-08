@@ -394,7 +394,7 @@ fun MainDesktopDashboard(
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     val latestBacktestResults = remember { mutableStateMapOf<String, SimulationResult>() }
-    val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "AUTO BOT", "PAPER TRADING", "MEXC CONFIG", "MEXC DEMO TRADES", "MEXC LIVE TRADES", "TRADE ANALYTICS")
+    val tabTitles = listOf("MARKET SCANNER", "CONFIRMED SIGNALS", "WATCHLIST", "BLUEPRINTS", "AUTO BOT", "PAPER TRADING", "MEXC CONFIG", "MEXC DEMO TRADES", "MEXC LIVE TRADES", "TRADE ANALYTICS", "SAFETY")
     var selectedCoinForDetails by remember { mutableStateOf<Coin?>(null) }
     var showExitNotice by remember { mutableStateOf(false) }
 
@@ -476,6 +476,7 @@ fun MainDesktopDashboard(
                         7 -> Icons.Default.Star          // MEXC DEMO TRADES
                         8 -> Icons.Default.ShoppingCart  // MEXC LIVE TRADES
                         9 -> Icons.Default.Share         // TRADE ANALYTICS
+                        10 -> Icons.Default.Warning         // SAFETY
                         else -> Icons.Default.Info
                     }
                     Tab(
@@ -545,6 +546,7 @@ fun MainDesktopDashboard(
                     7 -> MexcTradesTab(viewModel = viewModel, isDemo = true)
                     8 -> MexcTradesTab(viewModel = viewModel, isDemo = false)
                     9 -> TradeAnalyticsTab(viewModel = viewModel)
+                    10 -> SafetyDashboardTab(viewModel = viewModel)
                 }
             }
 
@@ -684,6 +686,16 @@ fun HeaderStatusBar(
     val botEnabled by viewModel.botEnabled.collectAsState()
     val mexcBotEnabled by viewModel.mexcBotEnabled.collectAsState()
 
+    val btcSimChange by viewModel.simulatedBtcChange24h.collectAsState()
+    val simAtrMult by viewModel.simulatedAtrMultiple.collectAsState()
+    val emergencyTrig by viewModel.emergencyTriggered.collectAsState()
+    val lossTrig by viewModel.consecutiveLossTriggered.collectAsState()
+    val volatilityTrig by viewModel.volatilityTriggered.collectAsState()
+    val btcTrendTrig by viewModel.btcTrendTriggered.collectAsState()
+    val cooldownMoveTrig by viewModel.cooldownMoveTriggered.collectAsState()
+
+    val protectionRes = viewModel.checkRiskProtectionStatus()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -726,35 +738,62 @@ fun HeaderStatusBar(
 
                 Spacer(modifier = Modifier.width(4.dp))
 
-                val (badgeLabel, badgeColor, badgeBg) = when {
-                    botEnabled -> Triple("Paper Trading Active", Color(0xFF22C55E), Color(0xFF22C55E).copy(alpha = 0.12f))
-                    mexcBotEnabled -> Triple("MEXC Live Active", CyberGold, CyberGold.copy(alpha = 0.12f))
-                    else -> Triple("No Active Bot", CyberTextDim, CyberSurface)
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(badgeBg)
-                        .border(1.dp, badgeColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                        .testTag("trading_mode_status_indicator")
-                ) {
-                    Box(
+                if (protectionRes.isBlocked) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
-                            .size(6.dp)
-                            .background(badgeColor, CircleShape)
-                    )
-                    Text(
-                        text = badgeLabel.uppercase(),
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = badgeColor,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 0.5.sp
-                    )
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xFFEAB308).copy(alpha = 0.12f))
+                            .border(1.dp, Color(0xFFEAB308).copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .testTag("protection_active_status_badge")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(Color(0xFFEAB308), CircleShape)
+                        )
+                        Text(
+                            text = "SAFETY BLOCKED: ${protectionRes.activeTriggeredModuleName.uppercase()}",
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color(0xFFEAB308),
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
+                } else {
+                    val (badgeLabel, badgeColor, badgeBg) = when {
+                        botEnabled -> Triple("Paper Trading Active", Color(0xFF22C55E), Color(0xFF22C55E).copy(alpha = 0.12f))
+                        mexcBotEnabled -> Triple("MEXC Live Active", CyberGold, CyberGold.copy(alpha = 0.12f))
+                        else -> Triple("No Active Bot", CyberTextDim, CyberSurface)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(badgeBg)
+                            .border(1.dp, badgeColor.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                            .testTag("trading_mode_status_indicator")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(badgeColor, CircleShape)
+                        )
+                        Text(
+                            text = badgeLabel.uppercase(),
+                            fontSize = 8.5.sp,
+                            fontWeight = FontWeight.Black,
+                            color = badgeColor,
+                            fontFamily = FontFamily.Monospace,
+                            letterSpacing = 0.5.sp
+                        )
+                    }
                 }
             }
         }

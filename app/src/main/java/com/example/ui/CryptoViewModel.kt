@@ -12,6 +12,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.SavedSignal
 import com.example.data.local.PaperTrade
 import com.example.data.model.Coin
+import com.example.data.model.ProtectionEvent
 import com.example.data.repository.CryptoRepository
 import com.example.data.network.MexcClient
 import java.util.Locale
@@ -39,6 +40,10 @@ class CryptoViewModel(
 
     // --- Paper Trading State ---
     private val prefs = application.getSharedPreferences("paper_trading_prefs", Context.MODE_PRIVATE)
+    private val moshi = com.example.data.network.NetworkClient.getMoshi()
+
+    private val _protectionHistoryList = MutableStateFlow<List<ProtectionEvent>>(emptyList())
+    val protectionHistoryList: StateFlow<List<ProtectionEvent>> = _protectionHistoryList.asStateFlow()
 
     private val _cashBalance = MutableStateFlow(prefs.getFloat("cash_balance", 100000f).toDouble())
     val cashBalance: StateFlow<Double> = _cashBalance.asStateFlow()
@@ -472,6 +477,7 @@ class CryptoViewModel(
         )
 
     init {
+        loadProtectionHistory()
         // Load strategy timeframe settings from preferences
         val settingsMap = mutableMapOf<String, Set<String>>()
         val allowedTfs = setOf("5m", "15m", "30m", "1H", "4H")
@@ -536,10 +542,24 @@ class CryptoViewModel(
                         _scannedCoins.value = updated
                     }
 
-                    if (_botEnabled.value && !_mexcBotEnabled.value) {
-                        runBotAutoTradingCycle()
-                    } else if (_mexcBotEnabled.value) {
-                        runMexcBotAutoTradingCycle()
+                    // Fluctuate simulated BTC price
+                    val currentBtc = _simulatedBtcPrice.value
+                    val btcWiggle = -0.0003 + (Random.nextDouble() * 0.0006) // -0.03% to +0.03% fluctuation
+                    val updatedBtc = currentBtc * (1.0 + btcWiggle)
+                    _simulatedBtcPrice.value = updatedBtc
+                    _simulatedBtcChange24h.value = _simulatedBtcChange24h.value + (btcWiggle * 100.0)
+
+                    val protectionRes = checkRiskProtectionStatus()
+                    if (protectionRes.isBlocked) {
+                        if (_botEnabled.value || _mexcBotEnabled.value) {
+                            incrementTradesPrevented()
+                        }
+                    } else {
+                        if (_botEnabled.value && !_mexcBotEnabled.value) {
+                            runBotAutoTradingCycle()
+                        } else if (_mexcBotEnabled.value) {
+                            runMexcBotAutoTradingCycle()
+                        }
                     }
                 } catch (e: Throwable) {
                     Log.e("CryptoViewModel", "Error in paper trading live ticking loop: ${e.message}")
@@ -1926,6 +1946,569 @@ class CryptoViewModel(
             }
         }
     }
+
+    // ==========================================
+    // --- SMART RISK PROTECTION LAYER STATE & LOGIC ---
+    // ==========================================
+
+    private val _smartRiskEnabled = MutableStateFlow(prefs.getBoolean("smart_risk_enabled", true))
+    val smartRiskEnabled: StateFlow<Boolean> = _smartRiskEnabled.asStateFlow()
+
+    private val _riskProfile = MutableStateFlow(prefs.getString("smart_risk_profile", "Balanced") ?: "Balanced")
+    val riskProfile: StateFlow<String> = _riskProfile.asStateFlow()
+
+    // --- Simulated Risk Environment variables ---
+    private val _simulatedBtcPrice = MutableStateFlow(prefs.getFloat("sim_btc_price", 67350f).toDouble())
+    val simulatedBtcPrice: StateFlow<Double> = _simulatedBtcPrice.asStateFlow()
+
+    private val _simulatedBtcChange24h = MutableStateFlow(prefs.getFloat("sim_btc_change_24h", 1.2f).toDouble())
+    val simulatedBtcChange24h: StateFlow<Double> = _simulatedBtcChange24h.asStateFlow()
+
+    private val _simulatedAtrMultiple = MutableStateFlow(prefs.getFloat("sim_atr_multiple", 1.2f).toDouble())
+    val simulatedAtrMultiple: StateFlow<Double> = _simulatedAtrMultiple.asStateFlow()
+
+    // Threshold configs (Custom mode backups / advanced configs)
+    private val _advEmergencyEnabled = MutableStateFlow(prefs.getBoolean("adv_emerg_enabled", true))
+    val advEmergencyEnabled: StateFlow<Boolean> = _advEmergencyEnabled.asStateFlow()
+
+    private val _advEmergencyBtcDrop = MutableStateFlow(prefs.getFloat("adv_emerg_btc_drop", 5f).toDouble())
+    val advEmergencyBtcDrop: StateFlow<Double> = _advEmergencyBtcDrop.asStateFlow()
+
+    private val _advEmergencyWindow = MutableStateFlow(prefs.getInt("adv_emerg_window", 60))
+    val advEmergencyWindow: StateFlow<Int> = _advEmergencyWindow.asStateFlow()
+
+    private val _advEmergencyCooldown = MutableStateFlow(prefs.getInt("adv_emerg_cooldown", 60))
+    val advEmergencyCooldown: StateFlow<Int> = _advEmergencyCooldown.asStateFlow()
+
+    private val _advLossEnabled = MutableStateFlow(prefs.getBoolean("adv_loss_enabled", true))
+    val advLossEnabled: StateFlow<Boolean> = _advLossEnabled.asStateFlow()
+
+    private val _advLossMax = MutableStateFlow(prefs.getInt("adv_loss_max", 3))
+    val advLossMax: StateFlow<Int> = _advLossMax.asStateFlow()
+
+    private val _advLossPause = MutableStateFlow(prefs.getInt("adv_loss_pause", 60))
+    val advLossPause: StateFlow<Int> = _advLossPause.asStateFlow()
+
+    private val _advVolEnabled = MutableStateFlow(prefs.getBoolean("adv_vol_enabled", true))
+    val advVolEnabled: StateFlow<Boolean> = _advVolEnabled.asStateFlow()
+
+    private val _advVolAtrTrigger = MutableStateFlow(prefs.getFloat("adv_vol_atr_trigger", 2.5f).toDouble())
+    val advVolAtrTrigger: StateFlow<Double> = _advVolAtrTrigger.asStateFlow()
+
+    private val _advVolCooldown = MutableStateFlow(prefs.getInt("adv_vol_cooldown", 30))
+    val advVolCooldown: StateFlow<Int> = _advVolCooldown.asStateFlow()
+
+    private val _advBtcTrendEnabled = MutableStateFlow(prefs.getBoolean("adv_btc_trend_enabled", false))
+    val advBtcTrendEnabled: StateFlow<Boolean> = _advBtcTrendEnabled.asStateFlow()
+
+    private val _advCooldownEnabled = MutableStateFlow(prefs.getBoolean("adv_cooldown_enabled", true))
+    val advCooldownEnabled: StateFlow<Boolean> = _advCooldownEnabled.asStateFlow()
+
+    private val _advCooldownTrigger = MutableStateFlow(prefs.getFloat("adv_cooldown_trigger", 4f).toDouble())
+    val advCooldownTrigger: StateFlow<Double> = _advCooldownTrigger.asStateFlow()
+
+    private val _advCooldownWindow = MutableStateFlow(prefs.getInt("adv_cooldown_window", 15))
+    val advCooldownWindow: StateFlow<Int> = _advCooldownWindow.asStateFlow()
+
+    private val _advCooldownCooldown = MutableStateFlow(prefs.getInt("adv_cooldown_cooldown", 30))
+    val advCooldownCooldown: StateFlow<Int> = _advCooldownCooldown.asStateFlow()
+
+    // Manual Trigger overrides for simulation / testing
+    private val _emergencyTriggered = MutableStateFlow(false)
+    val emergencyTriggered: StateFlow<Boolean> = _emergencyTriggered.asStateFlow()
+
+    private val _emergencyReason = MutableStateFlow("")
+    val emergencyReason: StateFlow<String> = _emergencyReason.asStateFlow()
+
+    private val _consecutiveLossTriggered = MutableStateFlow(false)
+    val consecutiveLossTriggered: StateFlow<Boolean> = _consecutiveLossTriggered.asStateFlow()
+
+    private val _consecutiveLossReason = MutableStateFlow("")
+    val consecutiveLossReason: StateFlow<String> = _consecutiveLossReason.asStateFlow()
+
+    private val _volatilityTriggered = MutableStateFlow(false)
+    val volatilityTriggered: StateFlow<Boolean> = _volatilityTriggered.asStateFlow()
+
+    private val _volatilityReason = MutableStateFlow("")
+    val volatilityReason: StateFlow<String> = _volatilityReason.asStateFlow()
+
+    private val _btcTrendTriggered = MutableStateFlow(false)
+    val btcTrendTriggered: StateFlow<Boolean> = _btcTrendTriggered.asStateFlow()
+
+    private val _btcTrendReason = MutableStateFlow("")
+    val btcTrendReason: StateFlow<String> = _btcTrendReason.asStateFlow()
+
+    private val _cooldownMoveTriggered = MutableStateFlow(false)
+    val cooldownMoveTriggered: StateFlow<Boolean> = _cooldownMoveTriggered.asStateFlow()
+
+    private val _cooldownMoveReason = MutableStateFlow("")
+    val cooldownMoveReason: StateFlow<String> = _cooldownMoveReason.asStateFlow()
+
+    private val _totalTradesPrevented = MutableStateFlow(prefs.getInt("total_trades_prevented", 0))
+    val totalTradesPrevented: StateFlow<Int> = _totalTradesPrevented.asStateFlow()
+
+    fun loadProtectionHistory() {
+        val json = prefs.getString("risk_protection_events_v1", "[]") ?: "[]"
+        try {
+            val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, ProtectionEvent::class.java)
+            val adapter = moshi.adapter<List<ProtectionEvent>>(type)
+            val list = adapter.fromJson(json) ?: emptyList()
+            _protectionHistoryList.value = list
+        } catch (e: Exception) {
+            Log.e("CryptoViewModel", "Error loading protection history", e)
+            _protectionHistoryList.value = emptyList()
+        }
+    }
+
+    fun saveProtectionHistory(list: List<ProtectionEvent>) {
+        try {
+            val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, ProtectionEvent::class.java)
+            val adapter = moshi.adapter<List<ProtectionEvent>>(type)
+            val json = adapter.toJson(list)
+            prefs.edit().putString("risk_protection_events_v1", json).apply()
+        } catch (e: Exception) {
+            Log.e("CryptoViewModel", "Error saving protection history", e)
+        }
+    }
+
+    fun logProtectionEvent(module: String, conditions: String, duration: String, tradesPrevented: Int = 1) {
+        val now = System.currentTimeMillis()
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+        val formattedDate = sdf.format(java.util.Date(now))
+        
+        val event = ProtectionEvent(
+            id = java.util.UUID.randomUUID().toString(),
+            timestamp = now,
+            dateTimeStr = formattedDate,
+            moduleTriggered = module,
+            marketConditions = conditions,
+            durationOfPause = duration,
+            tradesPrevented = tradesPrevented,
+            engineStatus = "Paused"
+        )
+        
+        val newList = listOf(event) + _protectionHistoryList.value
+        _protectionHistoryList.value = newList
+        saveProtectionHistory(newList)
+        addLog("🛡️ [Risk Protection System] TRIGGERED: $module ($conditions). Trading features paused for $duration.")
+    }
+
+    fun clearProtectionHistory() {
+        _protectionHistoryList.value = emptyList()
+        saveProtectionHistory(emptyList())
+        addLog("🛡️ [Risk Protection System] Protection event history cleared.")
+    }
+
+    fun incrementTradesPrevented() {
+        val currentValue = _totalTradesPrevented.value + 1
+        _totalTradesPrevented.value = currentValue
+        prefs.edit().putInt("total_trades_prevented", currentValue).apply()
+    }
+
+    fun isModuleEnabled(moduleName: String): Boolean {
+        if (!_smartRiskEnabled.value) {
+            return when (moduleName) {
+                "Emergency" -> _advEmergencyEnabled.value
+                "Loss" -> _advLossEnabled.value
+                "Volatility" -> _advVolEnabled.value
+                "BtcTrend" -> _advBtcTrendEnabled.value
+                "Cooldown" -> _advCooldownEnabled.value
+                else -> false
+            }
+        }
+        return when (_riskProfile.value) {
+            "Conservative" -> true
+            "Balanced" -> {
+                when (moduleName) {
+                    "Emergency" -> true
+                    "Loss" -> true
+                    "Volatility" -> true
+                    "BtcTrend" -> false
+                    "Cooldown" -> true
+                    else -> false
+                }
+            }
+            "Aggressive" -> {
+                when (moduleName) {
+                    "Emergency" -> true
+                    "Loss" -> false
+                    "Volatility" -> false
+                    "BtcTrend" -> false
+                    "Cooldown" -> false
+                    else -> false
+                }
+            }
+            else -> {
+                when (moduleName) {
+                    "Emergency" -> _advEmergencyEnabled.value
+                    "Loss" -> _advLossEnabled.value
+                    "Volatility" -> _advVolEnabled.value
+                    "BtcTrend" -> _advBtcTrendEnabled.value
+                    "Cooldown" -> _advCooldownEnabled.value
+                    else -> false
+                }
+            }
+        }
+    }
+
+    fun getModuleThreshold(moduleName: String, paramName: String): Double {
+        val isCustomOrDisabled = !_smartRiskEnabled.value || _riskProfile.value == "Custom"
+        if (!isCustomOrDisabled) {
+            return when (moduleName) {
+                "Emergency" -> {
+                    when (paramName) {
+                        "Trigger" -> 5.0
+                        "Window" -> 60.0
+                        "Cooldown" -> 60.0
+                        else -> 0.0
+                    }
+                }
+                "Loss" -> {
+                    when (paramName) {
+                        "Max" -> 3.0
+                        "Pause" -> 60.0
+                        else -> 0.0
+                    }
+                }
+                "Volatility" -> {
+                    when (paramName) {
+                        "ATR" -> 2.5
+                        "Cooldown" -> 30.0
+                        else -> 0.0
+                    }
+                }
+                "BtcTrend" -> 0.0
+                "Cooldown" -> {
+                    when (paramName) {
+                        "Trigger" -> 4.0
+                        "Window" -> 15.0
+                        "Cooldown" -> 30.0
+                        else -> 0.0
+                    }
+                }
+                else -> 0.0
+            }
+        }
+        return when (moduleName) {
+            "Emergency" -> {
+                when (paramName) {
+                    "Trigger" -> _advEmergencyBtcDrop.value
+                    "Window" -> _advEmergencyWindow.value.toDouble()
+                    "Cooldown" -> _advEmergencyCooldown.value.toDouble()
+                    else -> 0.0
+                }
+            }
+            "Loss" -> {
+                when (paramName) {
+                    "Max" -> _advLossMax.value.toDouble()
+                    "Pause" -> _advLossPause.value.toDouble()
+                    else -> 0.0
+                }
+            }
+            "Volatility" -> {
+                when (paramName) {
+                    "ATR" -> _advVolAtrTrigger.value
+                    "Cooldown" -> _advVolCooldown.value.toDouble()
+                    else -> 0.0
+                }
+            }
+            "Cooldown" -> {
+                when (paramName) {
+                    "Trigger" -> _advCooldownTrigger.value
+                    "Window" -> _advCooldownWindow.value.toDouble()
+                    "Cooldown" -> _advCooldownCooldown.value.toDouble()
+                    else -> 0.0
+                }
+            }
+            else -> 0.0
+        }
+    }
+
+    private var lastLoggedTriggeredModule: String = ""
+
+    fun checkRiskProtectionStatus(): ProtectionCheckResult {
+        try {
+            // Emergency Check
+            if (isModuleEnabled("Emergency")) {
+                val trigger = getModuleThreshold("Emergency", "Trigger")
+                val isBtcCrashed = _simulatedBtcChange24h.value <= -trigger
+                if (isBtcCrashed || _emergencyTriggered.value) {
+                    val reason = if (isBtcCrashed) {
+                        "BTC dropped ${String.format(Locale.US, "%.1f", -_simulatedBtcChange24h.value)}% within ${getModuleThreshold("Emergency", "Window").toInt()} minutes"
+                    } else {
+                        _emergencyReason.value.ifBlank { "Simulated Emergency Crash" }
+                    }
+                    if (lastLoggedTriggeredModule != "Emergency") {
+                        lastLoggedTriggeredModule = "Emergency"
+                        logProtectionEvent("Emergency Market Protection", reason, "${getModuleThreshold("Emergency", "Cooldown").toInt()} Minutes")
+                    }
+                    return ProtectionCheckResult(true, "Emergency Market Protection", reason, "🚨")
+                }
+            }
+
+            // Consecutive Loss Check
+            if (isModuleEnabled("Loss")) {
+                val maxLosses = getModuleThreshold("Loss", "Max").toInt()
+                val closed = closedTrades.value
+                var isConsecutiveLoss = false
+                if (closed.size >= maxLosses) {
+                    val lastN = closed.take(maxLosses)
+                    if (lastN.all { it.pnl < 0.0 }) {
+                        isConsecutiveLoss = true
+                    }
+                }
+                if (isConsecutiveLoss || _consecutiveLossTriggered.value) {
+                    val reason = if (isConsecutiveLoss) {
+                        "$maxLosses consecutive losses detected in trade history"
+                    } else {
+                        _consecutiveLossReason.value.ifBlank { "$maxLosses consecutive losses detected" }
+                    }
+                    if (lastLoggedTriggeredModule != "Loss") {
+                        lastLoggedTriggeredModule = "Loss"
+                        logProtectionEvent("Consecutive Loss Protection", reason, "${getModuleThreshold("Loss", "Pause").toInt()} Minutes")
+                    }
+                    return ProtectionCheckResult(true, "Consecutive Loss Protection", reason, "📉")
+                }
+            }
+
+            // Volatility Filter Check
+            if (isModuleEnabled("Volatility")) {
+                val atrTrigger = getModuleThreshold("Volatility", "ATR")
+                val isVolatile = _simulatedAtrMultiple.value >= atrTrigger
+                if (isVolatile || _volatilityTriggered.value) {
+                    val reason = if (isVolatile) {
+                        "ATR exceeded configured threshold (${String.format(Locale.US, "%.1f", _simulatedAtrMultiple.value)}x >= ${atrTrigger}x)"
+                    } else {
+                        _volatilityReason.value.ifBlank { "Extreme Volatility Detected" }
+                    }
+                    if (lastLoggedTriggeredModule != "Volatility") {
+                        lastLoggedTriggeredModule = "Volatility"
+                        logProtectionEvent("Volatility Filter", reason, "${getModuleThreshold("Volatility", "Cooldown").toInt()} Minutes")
+                    }
+                    return ProtectionCheckResult(true, "Volatility Filter", reason, "⚡")
+                }
+            }
+
+            // BTC Trend Filter Check
+            if (isModuleEnabled("BtcTrend")) {
+                val isBearish = _simulatedBtcChange24h.value < 0.0
+                if (isBearish || _btcTrendTriggered.value) {
+                    val reason = if (isBearish) {
+                        "BTC trend is bearish (24h change: ${String.format(Locale.US, "%.2f", _simulatedBtcChange24h.value)}%)"
+                    } else {
+                        _btcTrendReason.value.ifBlank { "BTC Bearish Trend Active" }
+                    }
+                    if (lastLoggedTriggeredModule != "BtcTrend") {
+                        lastLoggedTriggeredModule = "BtcTrend"
+                        logProtectionEvent("BTC Trend Filter", reason, "30 Minutes")
+                    }
+                    return ProtectionCheckResult(true, "BTC Trend Filter", reason, "📈")
+                }
+            }
+
+            // Cooldown after Large Move Check
+            if (isModuleEnabled("Cooldown")) {
+                val trigger = getModuleThreshold("Cooldown", "Trigger")
+                val isLargeMove = Math.abs(_simulatedBtcChange24h.value) >= trigger
+                if (isLargeMove || _cooldownMoveTriggered.value) {
+                    val reason = if (isLargeMove) {
+                        "BTC moved ${String.format(Locale.US, "%.1f", Math.abs(_simulatedBtcChange24h.value))}% within ${getModuleThreshold("Cooldown", "Window").toInt()} minutes"
+                    } else {
+                        _cooldownMoveReason.value.ifBlank { "4% BTC Sharp Move" }
+                    }
+                    if (lastLoggedTriggeredModule != "Cooldown") {
+                        lastLoggedTriggeredModule = "Cooldown"
+                        logProtectionEvent("Cooldown Protection", reason, "${getModuleThreshold("Cooldown", "Cooldown").toInt()} Minutes")
+                    }
+                    return ProtectionCheckResult(true, "Cooldown Protection", reason, "⏳")
+                }
+            }
+
+            if (lastLoggedTriggeredModule.isNotEmpty()) {
+                addLog("🛡️ [Risk Protection System] Safe conditions restored. Trading armed!")
+                lastLoggedTriggeredModule = ""
+            }
+
+        } catch (e: Exception) {
+            Log.e("CryptoViewModel", "Error calculating protection conditions", e)
+            _error.value = "Risk Protection System Warning: Failed to calculate module conditions. Continuing with remaining modules."
+        }
+
+        return ProtectionCheckResult(false)
+    }
+
+    fun setSmartRiskEnabled(enabled: Boolean) {
+        _smartRiskEnabled.value = enabled
+        prefs.edit().putBoolean("smart_risk_enabled", enabled).apply()
+        addLog("🛡️ [Smart Risk] Master Toggle: ${if(enabled) "ON" else "OFF"}")
+    }
+
+    fun setRiskProfile(profile: String) {
+        _riskProfile.value = profile
+        prefs.edit().putString("smart_risk_profile", profile).apply()
+        addLog("🛡️ [Smart Risk] Set Active Profile: $profile")
+    }
+
+    fun setSimulatedBtcPrice(price: Double) {
+        _simulatedBtcPrice.value = price
+        prefs.edit().putFloat("sim_btc_price", price.toFloat()).apply()
+    }
+
+    fun setSimulatedBtcChange24h(change: Double) {
+        _simulatedBtcChange24h.value = change
+        prefs.edit().putFloat("sim_btc_change_24h", change.toFloat()).apply()
+    }
+
+    fun setSimulatedAtrMultiple(atr: Double) {
+        _simulatedAtrMultiple.value = atr
+        prefs.edit().putFloat("sim_atr_multiple", atr.toFloat()).apply()
+    }
+
+    fun setAdvEmergencyEnabled(enabled: Boolean) {
+        _advEmergencyEnabled.value = enabled
+        prefs.edit().putBoolean("adv_emerg_enabled", enabled).apply()
+    }
+    fun setAdvEmergencyBtcDrop(drop: Double) {
+        _advEmergencyBtcDrop.value = drop
+        prefs.edit().putFloat("adv_emerg_btc_drop", drop.toFloat()).apply()
+    }
+    fun setAdvEmergencyWindow(window: Int) {
+        _advEmergencyWindow.value = window
+        prefs.edit().putInt("adv_emerg_window", window).apply()
+    }
+    fun setAdvEmergencyCooldown(cooldown: Int) {
+        _advEmergencyCooldown.value = cooldown
+        prefs.edit().putInt("adv_emerg_cooldown", cooldown).apply()
+    }
+
+    fun setAdvLossEnabled(enabled: Boolean) {
+        _advLossEnabled.value = enabled
+        prefs.edit().putBoolean("adv_loss_enabled", enabled).apply()
+    }
+    fun setAdvLossMax(max: Int) {
+        _advLossMax.value = max
+        prefs.edit().putInt("adv_loss_max", max).apply()
+    }
+    fun setAdvLossPause(pause: Int) {
+        _advLossPause.value = pause
+        prefs.edit().putInt("adv_loss_pause", pause).apply()
+    }
+
+    fun setAdvVolEnabled(enabled: Boolean) {
+        _advVolEnabled.value = enabled
+        prefs.edit().putBoolean("adv_vol_enabled", enabled).apply()
+    }
+    fun setAdvVolAtrTrigger(trigger: Double) {
+        _advVolAtrTrigger.value = trigger
+        prefs.edit().putFloat("adv_vol_atr_trigger", trigger.toFloat()).apply()
+    }
+    fun setAdvVolCooldown(cooldown: Int) {
+        _advVolCooldown.value = cooldown
+        prefs.edit().putInt("adv_vol_cooldown", cooldown).apply()
+    }
+
+    fun setAdvBtcTrendEnabled(enabled: Boolean) {
+        _advBtcTrendEnabled.value = enabled
+        prefs.edit().putBoolean("adv_btc_trend_enabled", enabled).apply()
+    }
+
+    fun setAdvCooldownEnabled(enabled: Boolean) {
+        _advCooldownEnabled.value = enabled
+        prefs.edit().putBoolean("adv_cooldown_enabled", enabled).apply()
+    }
+    fun setAdvCooldownTrigger(trigger: Double) {
+        _advCooldownTrigger.value = trigger
+        prefs.edit().putFloat("adv_cooldown_trigger", trigger.toFloat()).apply()
+    }
+    fun setAdvCooldownWindow(window: Int) {
+        _advCooldownWindow.value = window
+        prefs.edit().putInt("adv_cooldown_window", window).apply()
+    }
+    fun setAdvCooldownCooldown(cooldown: Int) {
+        _advCooldownCooldown.value = cooldown
+        prefs.edit().putInt("adv_cooldown_cooldown", cooldown).apply()
+    }
+
+    fun setEmergencyTriggered(trig: Boolean, reason: String = "") {
+        _emergencyTriggered.value = trig
+        _emergencyReason.value = reason
+        if (trig) {
+            checkRiskProtectionStatus()
+        }
+    }
+    fun setConsecutiveLossTriggered(trig: Boolean, reason: String = "") {
+        _consecutiveLossTriggered.value = trig
+        _consecutiveLossReason.value = reason
+        if (trig) {
+            checkRiskProtectionStatus()
+        }
+    }
+    fun setVolatilityTriggered(trig: Boolean, reason: String = "") {
+        _volatilityTriggered.value = trig
+        _volatilityReason.value = reason
+        if (trig) {
+            checkRiskProtectionStatus()
+        }
+    }
+    fun setBtcTrendTriggered(trig: Boolean, reason: String = "") {
+        _btcTrendTriggered.value = trig
+        _btcTrendReason.value = reason
+        if (trig) {
+            checkRiskProtectionStatus()
+        }
+    }
+    fun setCooldownMoveTriggered(trig: Boolean, reason: String = "") {
+        _cooldownMoveTriggered.value = trig
+        _cooldownMoveReason.value = reason
+        if (trig) {
+            checkRiskProtectionStatus()
+        }
+    }
+
+    fun resetToRecommendedDefaults() {
+        setSmartRiskEnabled(true)
+        setRiskProfile("Balanced")
+        
+        setAdvEmergencyEnabled(true)
+        setAdvEmergencyBtcDrop(5.0)
+        setAdvEmergencyWindow(60)
+        setAdvEmergencyCooldown(60)
+        
+        setAdvLossEnabled(true)
+        setAdvLossMax(3)
+        setAdvLossPause(60)
+        
+        setAdvVolEnabled(true)
+        setAdvVolAtrTrigger(2.5)
+        setAdvVolCooldown(30)
+        
+        setAdvBtcTrendEnabled(false)
+        
+        setAdvCooldownEnabled(true)
+        setAdvCooldownTrigger(4.0)
+        setAdvCooldownWindow(15)
+        setAdvCooldownCooldown(30)
+        
+        _emergencyTriggered.value = false
+        _consecutiveLossTriggered.value = false
+        _volatilityTriggered.value = false
+        _btcTrendTriggered.value = false
+        _cooldownMoveTriggered.value = false
+        
+        _simulatedBtcPrice.value = 67350.0
+        _simulatedBtcChange24h.value = 1.2
+        _simulatedAtrMultiple.value = 1.2
+        
+        lastLoggedTriggeredModule = ""
+        addLog("🛡️ [Risk Protection System] Reset to Balanced Recommended default settings.")
+    }
+
+    class ProtectionCheckResult(
+        val isBlocked: Boolean,
+        val activeTriggeredModuleName: String = "",
+        val activeTriggeredModuleReason: String = "",
+        val activeTriggeredModuleIcon: String = ""
+    )
 
     private fun fallbackSmartInsights(closedTrades: List<PaperTrade>): String {
         if (closedTrades.isEmpty()) return "No trade history logged yet."
