@@ -122,6 +122,105 @@ fun CoreIntelligenceSubTab(
 
         item {
             Card(
+                modifier = Modifier.fillMaxWidth().testTag("mexc_fee_accounting_report_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "⚖️ MEXC TRADING FEE ACCOUNTING REPORT",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = CyberGold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Net ledger metrics optimized after deducting maker/taker Spot and Futures transaction commissions.",
+                        color = CyberTextDim,
+                        fontSize = 9.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val activeInclude by viewModel.includeExchangeFees.collectAsState()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Include Exchange Fees Toggle", fontSize = 11.sp, color = CyberTextWhite, fontWeight = FontWeight.Bold)
+                        Switch(
+                            checked = activeInclude,
+                            onCheckedChange = { viewModel.setIncludeExchangeFees(it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = CyberAccentGreen)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    androidx.compose.material3.HorizontalDivider(color = CyberSurface, thickness = 1.dp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val hasClosed = closedTrades.isNotEmpty()
+                    val totalGrossProfit = closedTrades.sumOf { it.grossPnl }
+                    val totalFeesPaid = closedTrades.sumOf { it.totalFees }
+                    val totalNetProfit = closedTrades.sumOf { it.netPnl }
+                    val averageFee = if (hasClosed) totalFeesPaid / closedTrades.size else 0.0
+                    val feesPercentageOfProfit = if (totalGrossProfit > 0.0) (totalFeesPaid / totalGrossProfit) * 100.0 else 0.0
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("TOTAL GROSS PROFIT", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(totalGrossProfit)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (totalGrossProfit >= 0) CyberAccentGreen else CyberAccentRed)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("TOTAL FEES PAID", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(totalFeesPaid)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CyberGold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("TOTAL NET PROFIT", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(totalNetProfit)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (totalNetProfit >= 0) CyberAccentGreen else CyberAccentRed)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("AVERAGE FEE / TRADE", fontSize = 8.sp, color = CyberTextDim)
+                            Text("$${formatCurrency(averageFee)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CyberTextWhite)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("FEES TO PROFIT RATIO", fontSize = 8.sp, color = CyberTextDim)
+                            Text("${String.format(Locale.US, "%.2f", feesPercentageOfProfit)}%", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CyberGold)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("GROSS VS NET RATIO", fontSize = 8.sp, color = CyberTextDim)
+                            val ratio = if (totalGrossProfit > 0.0) (totalNetProfit / totalGrossProfit) * 100.0 else 100.0
+                            val ratioText = if (ratio.isNaN() || ratio.isInfinite()) "0.0%" else "${String.format(Locale.US, "%.1f", ratio)}%"
+                            Text(ratioText, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = CyberAccentGreen)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
                 modifier = Modifier.fillMaxWidth().testTag("system_sharing_compliance_card"),
                 colors = CardDefaults.cardColors(containerColor = CyberCard),
                 shape = RoundedCornerShape(24.dp),

@@ -97,6 +97,88 @@ class CryptoViewModel(
     private val _feePercent = MutableStateFlow(prefs.getFloat("simulated_fee_percent", 0.05f).toDouble())
     val feePercent: StateFlow<Double> = _feePercent.asStateFlow()
 
+    // --- Dynamic Fee Accounting Config State ---
+    private val _includeExchangeFees = MutableStateFlow(prefs.getBoolean("include_exchange_fees", true))
+    val includeExchangeFees: StateFlow<Boolean> = _includeExchangeFees.asStateFlow()
+
+    private val _spotMakerFeePercent = MutableStateFlow(prefs.getFloat("spot_maker_fee_percent", 0.0f).toDouble())
+    val spotMakerFeePercent: StateFlow<Double> = _spotMakerFeePercent.asStateFlow()
+
+    private val _spotTakerFeePercent = MutableStateFlow(prefs.getFloat("spot_taker_fee_percent", 0.1f).toDouble())
+    val spotTakerFeePercent: StateFlow<Double> = _spotTakerFeePercent.asStateFlow()
+
+    private val _futuresMakerFeePercent = MutableStateFlow(prefs.getFloat("futures_maker_fee_percent", 0.01f).toDouble())
+    val futuresMakerFeePercent: StateFlow<Double> = _futuresMakerFeePercent.asStateFlow()
+
+    private val _futuresTakerFeePercent = MutableStateFlow(prefs.getFloat("futures_taker_fee_percent", 0.05f).toDouble())
+    val futuresTakerFeePercent: StateFlow<Double> = _futuresTakerFeePercent.asStateFlow()
+
+    fun setIncludeExchangeFees(include: Boolean) {
+        _includeExchangeFees.value = include
+        prefs.edit().putBoolean("include_exchange_fees", include).apply()
+        addLog(if (include) "⚙️ Fee Accounting ON: All dashboard, journal, analytics and performance statistics are adjusted for exchange fees (Net Profit)." else "⚙️ Fee Accounting OFF: All statistics use raw profit margins (Gross Profit).")
+        
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val openList = repository.getOpenTradesList()
+                val closedList = repository.getClosedTradesList()
+                val allTrades = openList + closedList
+                val updated = allTrades.map { trade ->
+                    val p = if (include) trade.netPnl else trade.grossPnl
+                    trade.copy(pnl = p)
+                }
+                if (updated.isNotEmpty()) {
+                    repository.updatePaperTrades(updated)
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("CryptoViewModel", "Error toggling includeExchangeFees updating trades: ${e.message}", e)
+            }
+        }
+    }
+
+    fun setSpotMakerFeePercent(value: Double) {
+        val coerced = value.coerceAtLeast(0.0)
+        _spotMakerFeePercent.value = coerced
+        prefs.edit().putFloat("spot_maker_fee_percent", coerced.toFloat()).apply()
+    }
+
+    fun setSpotTakerFeePercent(value: Double) {
+        val coerced = value.coerceAtLeast(0.0)
+        _spotTakerFeePercent.value = coerced
+        prefs.edit().putFloat("spot_taker_fee_percent", coerced.toFloat()).apply()
+    }
+
+    fun setFuturesMakerFeePercent(value: Double) {
+        val coerced = value.coerceAtLeast(0.0)
+        _futuresMakerFeePercent.value = coerced
+        prefs.edit().putFloat("futures_maker_fee_percent", coerced.toFloat()).apply()
+    }
+
+    fun setFuturesTakerFeePercent(value: Double) {
+        val coerced = value.coerceAtLeast(0.0)
+        _futuresTakerFeePercent.value = coerced
+        prefs.edit().putFloat("futures_taker_fee_percent", coerced.toFloat()).apply()
+    }
+
+    fun calculateTradeFees(
+        leverage: Double,
+        entryPrice: Double,
+        exitPrice: Double?, // Null if open
+        quantity: Double,
+        isEntry: Boolean,
+        isMaker: Boolean
+    ): Double {
+        val isFutures = leverage > 1.0
+        val ratePercent = if (isFutures) {
+            if (isMaker) _futuresMakerFeePercent.value else _futuresTakerFeePercent.value
+        } else {
+            if (isMaker) _spotMakerFeePercent.value else _spotTakerFeePercent.value
+        }
+        val rate = ratePercent / 100.0
+        val price = if (isEntry) entryPrice else (exitPrice ?: entryPrice)
+        return quantity * price * rate
+    }
+
     private val _botTargetCoinMode = MutableStateFlow(prefs.getString("bot_target_coin_mode", "ALL") ?: "ALL")
     val botTargetCoinMode: StateFlow<String> = _botTargetCoinMode.asStateFlow()
 
@@ -786,17 +868,19 @@ class CryptoViewModel(
             val currentPrice = (trade.currentPrice * (1.0 + randomPct)).coerceAtLeast(0.000001)
             
             val isBuy = trade.signalType == "LONG"
-            val rawPnl = if (isBuy) {
+            val rawPnlRaw = if (isBuy) {
                 (currentPrice - trade.entryPrice) * trade.quantity
             } else {
                 (trade.entryPrice - currentPrice) * trade.quantity
             }
+            val rawPnl = if (rawPnlRaw.isNaN() || rawPnlRaw.isInfinite()) 0.0 else rawPnlRaw
             
-            val isDemoOrPaper = !trade.isMexcTrade || trade.isMexcDemoTrade
-            val feeRate = if (isDemoOrPaper) _feePercent.value / 100.0 else 0.0
-            val entryFee = trade.investedAmount * feeRate
-            val currentExitFee = currentPrice * trade.quantity * feeRate
-            val pnl = (if (rawPnl.isNaN() || rawPnl.isInfinite()) 0.0 else rawPnl) - entryFee - currentExitFee
+            // Dynamic Fee calculations
+            val currentExitFee = calculateTradeFees(trade.leverage, trade.entryPrice, currentPrice, trade.quantity, isEntry = false, isMaker = false)
+            val totalFeesOpen = trade.entryFee + currentExitFee
+            val netPnl = rawPnl - totalFeesOpen
+            val activeInclude = _includeExchangeFees.value
+            val pnl = if (activeInclude) netPnl else rawPnl
 
             var triggerClose = false
             var finalStatus = trade.status
@@ -841,20 +925,32 @@ class CryptoViewModel(
             }
 
             if (triggerClose || forceCloseByBalancer) {
-                val netExchangedPnl = if (isBuy) {
+                val rawClosedPnl = if (isBuy) {
                     (exitPrice - trade.entryPrice) * trade.quantity
                 } else {
                     (trade.entryPrice - exitPrice) * trade.quantity
                 }
-                val exitFee = (exitPrice * trade.quantity) * feeRate
-                val finalPnl = netExchangedPnl - entryFee - exitFee
+                
+                // Determine maker or taker for exit execution
+                val isMakerExit = finalStatus == "CLOSED_TP" || finalStatus == "CLOSED_SL"
+                val finalExitFee = calculateTradeFees(trade.leverage, trade.entryPrice, exitPrice, trade.quantity, isEntry = false, isMaker = isMakerExit)
+                val finalTotalFees = trade.entryFee + finalExitFee
+                val finalGrossPnl = Math.max(-trade.investedAmount, rawClosedPnl) // Prevent exceeding total loss beyond investment margin
+                val finalNetPnl = finalGrossPnl - finalTotalFees
+                
+                val finalPnl = if (activeInclude) finalNetPnl else finalGrossPnl
 
                 val closedTrade = trade.copy(
                     currentPrice = exitPrice,
                     status = finalStatus,
                     exitPrice = exitPrice,
                     exitTimestamp = System.currentTimeMillis(),
-                    pnl = finalPnl
+                    pnl = finalPnl,
+                    exitValue = trade.quantity * exitPrice,
+                    exitFee = finalExitFee,
+                    totalFees = finalTotalFees,
+                    grossPnl = finalGrossPnl,
+                    netPnl = finalNetPnl
                 )
                 tradesToUpdate.add(closedTrade)
 
@@ -886,7 +982,12 @@ class CryptoViewModel(
             } else {
                 val updatedTrade = trade.copy(
                     currentPrice = currentPrice,
-                    pnl = pnl
+                    pnl = pnl,
+                    exitValue = 0.0,
+                    exitFee = 0.0,
+                    totalFees = totalFeesOpen,
+                    grossPnl = rawPnl,
+                    netPnl = netPnl
                 )
                 tradesToUpdate.add(updatedTrade)
             }
@@ -1078,10 +1179,17 @@ class CryptoViewModel(
             entryPrice * (1.0 - slippageVal)
         }
 
-        val feeRate = if (isDemoOrPaper) _feePercent.value / 100.0 else 0.0
-        val entryFee = investedAmount * feeRate
-        val netInvested = if (investedAmount > entryFee) investedAmount - entryFee else investedAmount
+        val levs = if (isMexc) listOf(1.0, 3.0, 5.0, 10.0, 20.0) else listOf(1.0)
+        val computedLeverage = levs.random()
+
+        val isFutures = computedLeverage > 1.0
+        val entryRatePercent = if (isFutures) _futuresTakerFeePercent.value else _spotTakerFeePercent.value
+        val entryRate = entryRatePercent / 100.0
+        val netInvested = investedAmount / (1.0 + entryRate)
+        val entryFee = investedAmount - netInvested
         val quantity = netInvested / slippedEntryPrice
+        
+        val initialEntryValue = quantity * slippedEntryPrice
         
         // Generate high-fidelity simulated analytics parameters for strategy optimization
         val allowedTfs = listOf("5m", "15m", "30m", "1H", "4H")
@@ -1093,9 +1201,6 @@ class CryptoViewModel(
             if (candidateTfs.isNotEmpty()) candidateTfs.random() else allowedTfs.random()
         }
         
-        val levs = if (isMexc) listOf(1.0, 3.0, 5.0, 10.0, 20.0) else listOf(1.0)
-        val computedLeverage = levs.random()
-
         val diffTp = Math.abs(takeProfit - entryPrice)
         val diffSl = Math.abs(entryPrice - stopLoss)
         val rr = if (diffSl > 0.0) (diffTp / diffSl) else 1.5
@@ -1122,6 +1227,11 @@ class CryptoViewModel(
             else -> "PAPER"
         }
 
+        val activeInclude = _includeExchangeFees.value
+        val initialGrossPnl = 0.0
+        val initialNetPnl = -entryFee
+        val initialPnl = if (activeInclude) initialNetPnl else initialGrossPnl
+
         val newTrade = PaperTrade(
             coinId = coinId,
             symbol = symbol,
@@ -1134,7 +1244,7 @@ class CryptoViewModel(
             takeProfit = takeProfit,
             quantity = quantity,
             status = "OPEN",
-            pnl = -entryFee, // Unreleased entry cost
+            pnl = initialPnl, 
             investedAmount = investedAmount,
             strategy = strategy,
             isMexcTrade = isMexc,
@@ -1148,7 +1258,14 @@ class CryptoViewModel(
             volatility = computedVolatility,
             volume = computedVolume,
             trend = computedTrend,
-            exchange = computedExchange
+            exchange = computedExchange,
+            entryValue = initialEntryValue,
+            exitValue = 0.0,
+            entryFee = entryFee,
+            exitFee = 0.0,
+            totalFees = entryFee,
+            grossPnl = initialGrossPnl,
+            netPnl = initialNetPnl
         )
         repository.insertPaperTrade(newTrade)
         val modeText = when {
@@ -1165,24 +1282,38 @@ class CryptoViewModel(
             try {
                 val isBuy = trade.signalType == "LONG"
                 val exitPrice = trade.currentPrice
-                val pnl = if (isBuy) {
+                val rawClosedPnl = if (isBuy) {
                     (exitPrice - trade.entryPrice) * trade.quantity
                 } else {
                     (trade.entryPrice - exitPrice) * trade.quantity
                 }
+                
+                // Manual closes are Market/Taker execution on exit:
+                val finalExitFee = calculateTradeFees(trade.leverage, trade.entryPrice, exitPrice, trade.quantity, isEntry = false, isMaker = false)
+                val finalTotalFees = trade.entryFee + finalExitFee
+                val finalGrossPnl = Math.max(-trade.investedAmount, rawClosedPnl) // Prevent exceeding total loss beyond investment margin
+                val finalNetPnl = finalGrossPnl - finalTotalFees
+                
+                val activeInclude = _includeExchangeFees.value
+                val finalPnl = if (activeInclude) finalNetPnl else finalGrossPnl
 
                 val closedTrade = trade.copy(
                     status = "CLOSED_MANUAL",
                     exitPrice = exitPrice,
                     exitTimestamp = System.currentTimeMillis(),
-                    pnl = pnl
+                    pnl = finalPnl,
+                    exitValue = trade.quantity * exitPrice,
+                    exitFee = finalExitFee,
+                    totalFees = finalTotalFees,
+                    grossPnl = finalGrossPnl,
+                    netPnl = finalNetPnl
                 )
                 repository.updatePaperTrade(closedTrade)
 
                 if (trade.isMexcTrade) {
                     if (trade.isMexcDemoTrade) {
                         _mexcDemoBalance.update { current ->
-                            val updated = current + trade.investedAmount + pnl
+                            val updated = current + trade.investedAmount + finalPnl
                             prefs.edit().putFloat("mexc_demo_balance", updated.toFloat()).apply()
                             updated
                         }
@@ -1190,7 +1321,7 @@ class CryptoViewModel(
                         closeMexcPositionIfLive(trade, exitPrice)
                     }
                 } else {
-                    modifyCashBalance(trade.investedAmount + pnl)
+                    modifyCashBalance(trade.investedAmount + finalPnl)
                 }
                 
                 val sourceLabel = when {
@@ -1198,7 +1329,7 @@ class CryptoViewModel(
                     trade.isMexcTrade -> "live MEXC position"
                     else -> "paper trade"
                 }
-                addLog("🔴 Manually closed $sourceLabel ${trade.symbol.uppercase()} at $${String.format(java.util.Locale.US, "%.4f", exitPrice)}. PnL: $${String.format(java.util.Locale.US, "%.2f", pnl)}")
+                addLog("🔴 Manually closed $sourceLabel ${trade.symbol.uppercase()} at $${String.format(java.util.Locale.US, "%.4f", exitPrice)}. PnL: $${String.format(java.util.Locale.US, "%.2f", finalPnl)}")
             } catch (e: Throwable) {
                 Log.e("CryptoViewModel", "Error closing paper trade: ${e.message}", e)
             }

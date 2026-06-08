@@ -7552,6 +7552,24 @@ fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
     var demoBalanceInput by remember { mutableStateOf(String.format(Locale.US, "%.0f", mexcDemoBalance)) }
     var tradeCostInput by remember { mutableStateOf(String.format(Locale.US, "%.0f", mexcBotTradeSize)) }
     
+    val activeInclude by viewModel.includeExchangeFees.collectAsState()
+    val spotMakerFee by viewModel.spotMakerFeePercent.collectAsState()
+    val spotTakerFee by viewModel.spotTakerFeePercent.collectAsState()
+    val futuresMakerFee by viewModel.futuresMakerFeePercent.collectAsState()
+    val futuresTakerFee by viewModel.futuresTakerFeePercent.collectAsState()
+
+    var spotMakerVal by remember { mutableStateOf(String.format(Locale.US, "%.3f", spotMakerFee)) }
+    var spotTakerVal by remember { mutableStateOf(String.format(Locale.US, "%.3f", spotTakerFee)) }
+    var futuresMakerVal by remember { mutableStateOf(String.format(Locale.US, "%.3f", futuresMakerFee)) }
+    var futuresTakerVal by remember { mutableStateOf(String.format(Locale.US, "%.3f", futuresTakerFee)) }
+
+    LaunchedEffect(spotMakerFee, spotTakerFee, futuresMakerFee, futuresTakerFee) {
+        spotMakerVal = String.format(Locale.US, "%.3f", spotMakerFee)
+        spotTakerVal = String.format(Locale.US, "%.3f", spotTakerFee)
+        futuresMakerVal = String.format(Locale.US, "%.3f", futuresMakerFee)
+        futuresTakerVal = String.format(Locale.US, "%.3f", futuresTakerFee)
+    }
+    
     LaunchedEffect(mexcBotMaxTrades, mexcDemoBalance, mexcBotTradeSize) {
         parallelTradesInput = mexcBotMaxTrades.toString()
         demoBalanceInput = String.format(Locale.US, "%.0f", mexcDemoBalance)
@@ -8077,6 +8095,88 @@ fun MexcTradingConsoleTab(viewModel: CryptoViewModel) {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // --- 3.5 MEXC REAL-TIME COMMISSION CALIBRATION ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth().testTag("mexc_commission_card"),
+                colors = CardDefaults.cardColors(containerColor = CyberCard),
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, CyberSurface)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text("MEXC COMMISSION ROUTING UNIT", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = CyberGold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Calibrate exchange tier Maker/Taker fees to accurately deduct platform commissions from trading vectors.", fontSize = 11.sp, color = CyberTextDim)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Deduct Exchange Fees", fontSize = 11.sp, color = CyberTextWhite, fontWeight = FontWeight.Bold)
+                        Switch(
+                            checked = activeInclude,
+                            onCheckedChange = { viewModel.setIncludeExchangeFees(it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = CyberAccentGreen)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = spotMakerVal,
+                            onValueChange = {
+                                spotMakerVal = it
+                                it.toDoubleOrNull()?.let { v -> viewModel.setSpotMakerFeePercent(v) }
+                            },
+                            label = { Text("Spot Maker Fee (%)", fontSize = 8.sp, color = CyberTextDim) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = spotTakerVal,
+                            onValueChange = {
+                                spotTakerVal = it
+                                it.toDoubleOrNull()?.let { v -> viewModel.setSpotTakerFeePercent(v) }
+                            },
+                            label = { Text("Spot Taker Fee (%)", fontSize = 8.sp, color = CyberTextDim) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = futuresMakerVal,
+                            onValueChange = {
+                                futuresMakerVal = it
+                                it.toDoubleOrNull()?.let { v -> viewModel.setFuturesMakerFeePercent(v) }
+                            },
+                            label = { Text("Futures Maker Fee (%)", fontSize = 8.sp, color = CyberTextDim) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = futuresTakerVal,
+                            onValueChange = {
+                                futuresTakerVal = it
+                                it.toDoubleOrNull()?.let { v -> viewModel.setFuturesTakerFeePercent(v) }
+                            },
+                            label = { Text("Futures Taker Fee (%)", fontSize = 8.sp, color = CyberTextDim) },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = CyberTextWhite, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
                     }
                 }
             }

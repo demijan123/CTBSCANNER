@@ -36,5 +36,14 @@ data class PaperTrade(
     val volatility: Double = 0.05,
     val volume: Double = 12500000.0,
     val trend: String = "NEUTRAL",
-    val exchange: String = "PAPER"
+    val exchange: String = "PAPER",
+    
+    // Fee-accounting fields supporting both net and gross PnL
+    val entryValue: Double = 0.0,
+    val exitValue: Double = 0.0,
+    val entryFee: Double = 0.0,
+    val exitFee: Double = 0.0,
+    val totalFees: Double = 0.0,
+    val grossPnl: Double = 0.0,
+    val netPnl: Double = 0.0
 )

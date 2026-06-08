@@ -491,26 +491,66 @@ fun MexcTradesTab(viewModel: CryptoViewModel, isDemo: Boolean) {
                                 )
                             }
                             Spacer(modifier = Modifier.height(10.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
-                                    Text("ENTRY PRICE", fontSize = 8.sp, color = CyberTextDim)
-                                    Text("$${formatPrice(tr.entryPrice)}", fontSize = 11.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                    Text("ENTRY VALUE", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.entryValue)}", fontSize = 10.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
                                 }
                                 Column {
-                                    Text("EXIT PRICE", fontSize = 8.sp, color = CyberTextDim)
-                                    Text("$${formatPrice(tr.exitPrice ?: tr.currentPrice)}", fontSize = 11.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                    Text("EXIT VALUE", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.exitValue)}", fontSize = 10.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text("REALIZED PNL", fontSize = 8.sp, color = CyberTextDim)
-                                    Text("$${formatCurrency(tr.pnl)}", fontSize = 11.sp, color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                    Text("GROSS PNL", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.grossPnl)}", fontSize = 10.sp, color = if (tr.grossPnl >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("ENTRY FEE", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.entryFee)}", fontSize = 10.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text("EXIT FEE", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.exitFee)}", fontSize = 10.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("TOTAL FEES", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.totalFees)}", fontSize = 10.sp, color = CyberGold, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth().background(CyberDark, RoundedCornerShape(12.dp)).padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Column {
+                                    Text("ENTRY PRICE", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.entryPrice)}", fontSize = 10.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                                Column {
+                                    Text("EXIT PRICE", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatPrice(tr.exitPrice ?: tr.currentPrice)}", fontSize = 10.sp, color = CyberTextWhite, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("NET PNL", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.netPnl)}", fontSize = 10.sp, color = if (tr.netPnl >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
-                                    Text("CLOSED TIME", fontSize = 8.sp, color = CyberTextDim)
+                                    Text("CLOSED TIME", fontSize = 7.5.sp, color = CyberTextDim)
                                     val formattedTime = java.text.SimpleDateFormat("MMM dd, HH:mm:ss", java.util.Locale.US).format(java.util.Date(tr.exitTimestamp ?: tr.timestamp))
                                     Text(formattedTime, fontSize = 10.sp, color = CyberGold, fontFamily = FontFamily.Monospace)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text("ACTIVE PNL DISPLAY", fontSize = 7.5.sp, color = CyberTextDim)
+                                    Text("$${formatCurrency(tr.pnl)}", fontSize = 11.sp, color = if (tr.pnl >= 0) CyberAccentGreen else CyberAccentRed, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
                                 }
                             }
                             Spacer(modifier = Modifier.height(6.dp))
